@@ -15,6 +15,17 @@ export const state = {
       lockYRange: false,
       snapXRange: true,
     },
+    peakMenu: {
+      open: false,
+      spectrumId: null,
+      peakIndex: null,
+      peakNumber: null,
+      x: null,
+      y: null,
+      prominence: null,
+      clientX: 0,
+      clientY: 0,
+    },
   },
 };
 

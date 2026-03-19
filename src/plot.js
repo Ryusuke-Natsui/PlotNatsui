@@ -1,4 +1,4 @@
-import { state } from "./state.js";
+import { state, getSelectedSpectrum } from "./state.js";
 import { applyOffsets } from "./process.js";
 
 let isApplyingViewport = false;
@@ -271,6 +271,13 @@ function storeViewportFromRelayout(eventData) {
   return true;
 }
 
+function dispatchPeakEvent(plotEl, eventName, detail = {}) {
+  plotEl.dispatchEvent(new CustomEvent(eventName, {
+    detail,
+    bubbles: true,
+  }));
+}
+
 function bindPlotInteractions(plotEl) {
   if (plotEl.dataset.viewportBound === "true") return;
 
@@ -279,6 +286,30 @@ function bindPlotInteractions(plotEl) {
     const changed = storeViewportFromRelayout(eventData);
     if (!changed) return;
     await renderPlot();
+  });
+
+  plotEl.on("plotly_click", (eventData) => {
+    const point = eventData?.points?.[0];
+    const peakData = point?.customdata;
+    if (!peakData?.isPeakMarker) {
+      dispatchPeakEvent(plotEl, "peak-marker-clear");
+      return;
+    }
+
+    dispatchPeakEvent(plotEl, "peak-marker-click", {
+      spectrumId: peakData.spectrumId,
+      peakIndex: peakData.peakIndex,
+      peakNumber: peakData.peakNumber,
+      x: peakData.x,
+      y: peakData.y,
+      prominence: peakData.prominence,
+      clientX: eventData?.event?.clientX ?? 0,
+      clientY: eventData?.event?.clientY ?? 0,
+    });
+  });
+
+  plotEl.on("plotly_doubleclick", () => {
+    dispatchPeakEvent(plotEl, "peak-marker-clear");
   });
 
   plotEl.dataset.viewportBound = "true";
@@ -351,6 +382,42 @@ export async function renderPlot() {
     },
     hovertemplate: "%{x}<br>%{y}<extra>%{fullData.name}</extra>",
   }));
+
+  const selectedSpectrum = getSelectedSpectrum();
+  const selectedPrepared = prepared.find((s) => s.id === selectedSpectrum?.id);
+  const selectedColor = selectedPrepared
+    ? (selectedPrepared.color || defaultColor(prepared.findIndex((s) => s.id === selectedPrepared.id)))
+    : defaultColor(0);
+
+  if (selectedPrepared?.detectedPeaks?.length) {
+    traces.push({
+      x: selectedPrepared.detectedPeaks.map((peak) => selectedPrepared.xPlot[peak.index]),
+      y: selectedPrepared.detectedPeaks.map((peak) => selectedPrepared.yPlot[peak.index]),
+      type: "scatter",
+      mode: "markers",
+      name: `${selectedPrepared.name} peaks`,
+      showlegend: false,
+      marker: {
+        size: 11,
+        color: selectedColor,
+        symbol: "diamond-open",
+        line: {
+          width: 2,
+          color: colors.text,
+        },
+      },
+      customdata: selectedPrepared.detectedPeaks.map((peak, peakNumber) => ({
+        isPeakMarker: true,
+        spectrumId: selectedPrepared.id,
+        peakIndex: peak.index,
+        peakNumber: peakNumber + 1,
+        x: peak.x,
+        y: peak.y,
+        prominence: peak.prominence,
+      })),
+      hovertemplate: "peak #%{customdata.peakNumber}<br>x=%{customdata.x:.4f}<br>y=%{customdata.y:.4f}<br>prominence=%{customdata.prominence:.4f}<extra>Click for actions</extra>",
+    });
+  }
 
   const resolvedViewport = resolveViewport(traces);
 
