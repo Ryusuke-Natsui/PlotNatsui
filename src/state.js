@@ -7,6 +7,8 @@ export const state = {
     theme: "light",
     offsetStep: 0,
     plotHeight: 560,
+    axisTitleFontSize: 30,
+    axisTickFontSize: 18,
     plotViewport: {
       selectedXRange: null,
       manualXRange: null,

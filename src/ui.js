@@ -159,6 +159,8 @@ export function renderAll() {
   document.getElementById("themeSelect").value = state.ui.theme;
   document.getElementById("offsetStepInput").value = state.ui.offsetStep;
   document.getElementById("plotHeightInput").value = state.ui.plotHeight;
+  document.getElementById("axisTitleFontSizeInput").value = state.ui.axisTitleFontSize;
+  document.getElementById("axisTickFontSizeInput").value = state.ui.axisTickFontSize;
   renderTraceList();
   renderPeakList();
 }
@@ -275,6 +277,8 @@ export function bindUi() {
     state.ui.theme = document.getElementById("themeSelect").value;
     state.ui.offsetStep = Number(document.getElementById("offsetStepInput").value) || 0;
     state.ui.plotHeight = Number(document.getElementById("plotHeightInput").value) || 560;
+    state.ui.axisTitleFontSize = Number(document.getElementById("axisTitleFontSizeInput").value) || 30;
+    state.ui.axisTickFontSize = Number(document.getElementById("axisTickFontSizeInput").value) || 18;
     renderAll();
     await renderPlot();
     setStatus("表示設定を更新しました。");
