@@ -58,7 +58,13 @@
               <button id="resetZoomBtn" type="button" disabled>Reset zoom</button>
             </div>
           </div>
-          <div id="plot" class="plot"></div>
+          <div id="plotDropzone" class="plot-dropzone">
+            <div id="plot" class="plot"></div>
+            <div class="plot-drop-overlay" aria-hidden="true">
+              <span class="plot-drop-title">入力データをここにドロップ</span>
+              <span class="plot-drop-subtitle">txt / csv / tsv / dat をそのまま追加できます</span>
+            </div>
+          </div>
         </section>
 
         <section class="card">
@@ -71,12 +77,30 @@
         <section class="card">
           <h2>View</h2>
           <label>
+            X label preset
+            <select id="xLabelPresetInput">
+              <option value="raman">Raman shift / cm⁻¹</option>
+              <option value="pl">PL wavelength / nm</option>
+              <option value="energy">Photon energy / eV</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label>
             X label
             <input id="xLabelInput" type="text" value="Raman shift / cm⁻¹" />
           </label>
           <label>
+            Y label preset
+            <select id="yLabelPresetInput">
+              <option value="a.u.">Intensity (a.u.)</option>
+              <option value="counts">Intensity (counts)</option>
+              <option value="cps">Intensity (cps)</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label>
             Y label
-            <input id="yLabelInput" type="text" value="Intensity / a.u." />
+            <input id="yLabelInput" type="text" value="Intensity (a.u.)" />
           </label>
           <label>
             Theme
@@ -92,6 +116,14 @@
           <label>
             Plot height
             <input id="plotHeightInput" type="number" min="300" max="1200" step="10" value="560" />
+          </label>
+          <label>
+            Axis label size
+            <input id="axisTitleFontSizeInput" type="number" min="12" max="72" step="1" value="30" />
+          </label>
+          <label>
+            Tick label size
+            <input id="axisTickFontSizeInput" type="number" min="8" max="48" step="1" value="18" />
           </label>
           <div class="axis-range-grid">
             <label>
@@ -127,7 +159,7 @@
             <button id="applyAxisRangeBtn" type="button">Apply ranges</button>
             <button id="applyViewBtn">Apply View</button>
           </div>
-          <p class="hint">数値入力で測定範囲を指定でき、固定スケールを使うと複数グラフの強度比較がしやすくなります。</p>
+          <p class="hint">ラベルの定番候補を選べます。各スペクトルに測定時間を入れると、その系列は cps 換算され、y 軸ラベルも自動で Intensity (cps) になります。</p>
         </section>
 
         <section class="card">

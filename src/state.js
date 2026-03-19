@@ -16,10 +16,14 @@ export const state = {
   selectedSpectrumId: null,
   ui: {
     xLabel: "Raman shift / cm⁻¹",
-    yLabel: "Intensity / a.u.",
+    yLabel: "Intensity (a.u.)",
+    xLabelPreset: "raman",
+    yLabelPreset: "a.u.",
     theme: "light",
     offsetStep: 0,
     plotHeight: 560,
+    axisTitleFontSize: 30,
+    axisTickFontSize: 18,
     plotViewport: {
       selectedXRange: null,
       manualXRange: null,
@@ -72,11 +76,16 @@ export function exportProject() {
 }
 
 export function importProject(project) {
-  state.spectra = (project.spectra ?? []).map(normalizeSpectrumState);
+  state.spectra = (project.spectra ?? []).map((spectrum) => ({
+    measurementTimeSeconds: null,
+    ...spectrum,
+  }));
   state.selectedSpectrumId = project.selectedSpectrumId ?? state.spectra[0]?.id ?? null;
   state.ui = {
     ...state.ui,
     ...(project.ui ?? {}),
+    xLabelPreset: project.ui?.xLabelPreset ?? state.ui.xLabelPreset,
+    yLabelPreset: project.ui?.yLabelPreset ?? state.ui.yLabelPreset,
     plotViewport: {
       ...state.ui.plotViewport,
       ...(project.ui?.plotViewport ?? {}),
