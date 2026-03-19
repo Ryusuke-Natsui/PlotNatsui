@@ -1,6 +1,8 @@
 import { state } from "./state.js";
 import { applyOffsets } from "./process.js";
 
+let isApplyingViewport = false;
+
 function getThemeColors(theme) {
   return theme === "dark"
     ? {
@@ -66,6 +68,267 @@ function createAxisConfig(title, colors) {
   };
 }
 
+function isFiniteNumber(value) {
+  return Number.isFinite(value);
+}
+
+function normalizeRange(range) {
+  if (!Array.isArray(range) || range.length !== 2) return null;
+  const start = Number(range[0]);
+  const end = Number(range[1]);
+  if (!isFiniteNumber(start) || !isFiniteNumber(end) || start === end) return null;
+  return start < end ? [start, end] : [end, start];
+}
+
+function roundToStep(value, step) {
+  if (!isFiniteNumber(value) || !isFiniteNumber(step) || step === 0) return value;
+  const precision = Math.max(0, Math.ceil(-Math.log10(Math.abs(step))) + 2);
+  return Number(value.toFixed(precision));
+}
+
+function niceStep(rawStep, roundResult = true) {
+  if (!isFiniteNumber(rawStep) || rawStep <= 0) return 1;
+  const exponent = Math.floor(Math.log10(rawStep));
+  const fraction = rawStep / (10 ** exponent);
+  let niceFraction;
+
+  if (roundResult) {
+    if (fraction < 1.5) niceFraction = 1;
+    else if (fraction < 3) niceFraction = 2;
+    else if (fraction < 7) niceFraction = 5;
+    else niceFraction = 10;
+  } else {
+    if (fraction <= 1) niceFraction = 1;
+    else if (fraction <= 2) niceFraction = 2;
+    else if (fraction <= 5) niceFraction = 5;
+    else niceFraction = 10;
+  }
+
+  return niceFraction * (10 ** exponent);
+}
+
+function buildNiceAxis(range, { targetTicks = 6, paddingRatio = 0 } = {}) {
+  const normalized = normalizeRange(range);
+  if (!normalized) return null;
+
+  const [rawMin, rawMax] = normalized;
+  const span = rawMax - rawMin;
+  const paddedSpan = span > 0 ? span * (1 + paddingRatio * 2) : Math.max(Math.abs(rawMax) * 0.2, 1);
+  const center = (rawMin + rawMax) / 2;
+  const paddedMin = span > 0 ? rawMin - (span * paddingRatio) : center - (paddedSpan / 2);
+  const paddedMax = span > 0 ? rawMax + (span * paddingRatio) : center + (paddedSpan / 2);
+  const step = niceStep((paddedMax - paddedMin) / Math.max(targetTicks - 1, 1));
+  const min = roundToStep(Math.floor(paddedMin / step) * step, step);
+  const max = roundToStep(Math.ceil(paddedMax / step) * step, step);
+
+  return {
+    range: [min, max],
+    tick0: min,
+    dtick: step,
+  };
+}
+
+function getVisibleXRange(traces) {
+  const values = [];
+  traces.forEach((trace) => {
+    trace.x.forEach((value) => {
+      if (isFiniteNumber(value)) values.push(value);
+    });
+  });
+  if (!values.length) return null;
+  return [Math.min(...values), Math.max(...values)];
+}
+
+function getVisibleYRange(traces, xRange = null) {
+  const normalizedX = normalizeRange(xRange);
+  const yValues = [];
+
+  traces.forEach((trace) => {
+    for (let index = 0; index < trace.x.length; index += 1) {
+      const x = Number(trace.x[index]);
+      const y = Number(trace.y[index]);
+      const inRange = !normalizedX || (isFiniteNumber(x) && x >= normalizedX[0] && x <= normalizedX[1]);
+      if (inRange && isFiniteNumber(y)) {
+        yValues.push(y);
+      }
+    }
+  });
+
+  if (!yValues.length) return null;
+  return [Math.min(...yValues), Math.max(...yValues)];
+}
+
+function updateAxisRangeInputs(xRange, yRange) {
+  const mappings = [
+    ["xRangeMinInput", xRange?.[0]],
+    ["xRangeMaxInput", xRange?.[1]],
+    ["yRangeMinInput", yRange?.[0]],
+    ["yRangeMaxInput", yRange?.[1]],
+  ];
+
+  mappings.forEach(([id, value]) => {
+    const input = document.getElementById(id);
+    if (!input) return;
+    input.value = isFiniteNumber(value) ? String(value) : "";
+  });
+}
+
+function syncAxisControlState(resolvedViewport = null) {
+  const viewport = state.ui.plotViewport;
+  const resetBtn = document.getElementById("resetZoomBtn");
+  const xLock = document.getElementById("lockXRangeInput");
+  const yLock = document.getElementById("lockYRangeInput");
+  const snapX = document.getElementById("snapXRangeInput");
+
+  if (resetBtn) {
+    resetBtn.disabled = !normalizeRange(viewport.selectedXRange)
+      && !normalizeRange(viewport.manualXRange)
+      && !normalizeRange(viewport.manualYRange)
+      && !viewport.lockXRange
+      && !viewport.lockYRange;
+  }
+
+  if (xLock) xLock.checked = Boolean(viewport.lockXRange);
+  if (yLock) yLock.checked = Boolean(viewport.lockYRange);
+  if (snapX) snapX.checked = viewport.snapXRange !== false;
+
+  updateAxisRangeInputs(
+    resolvedViewport?.displayXRange ?? normalizeRange(viewport.manualXRange) ?? normalizeRange(viewport.selectedXRange),
+    resolvedViewport?.displayYRange ?? normalizeRange(viewport.manualYRange)
+  );
+}
+
+function resolveViewport(traces) {
+  const viewport = state.ui.plotViewport;
+  const dataXRange = getVisibleXRange(traces);
+
+  const requestedXRange = normalizeRange(viewport.lockXRange
+    ? viewport.manualXRange
+    : (viewport.manualXRange ?? viewport.selectedXRange ?? dataXRange));
+
+  const shouldSnapX = viewport.lockXRange ? false : viewport.snapXRange !== false;
+  const xAxis = requestedXRange
+    ? buildNiceAxis(requestedXRange, { targetTicks: 7, paddingRatio: shouldSnapX ? 0.04 : 0 })
+    : (dataXRange ? buildNiceAxis(dataXRange, { targetTicks: 7, paddingRatio: 0.02 }) : null);
+
+  const displayXRange = normalizeRange(xAxis?.range ?? requestedXRange ?? dataXRange);
+
+  const requestedYRange = normalizeRange(viewport.lockYRange ? viewport.manualYRange : null)
+    ?? getVisibleYRange(traces, displayXRange)
+    ?? getVisibleYRange(traces);
+
+  const yAxis = requestedYRange
+    ? buildNiceAxis(requestedYRange, { targetTicks: 6, paddingRatio: viewport.lockYRange ? 0 : 0.08 })
+    : null;
+
+  return {
+    dataXRange,
+    displayXRange,
+    displayYRange: normalizeRange(yAxis?.range ?? requestedYRange),
+    xAxis,
+    yAxis,
+  };
+}
+
+function applyAxisLayout(axisLayout, axisSpec) {
+  if (!axisSpec?.range) {
+    axisLayout.autorange = true;
+    delete axisLayout.range;
+    delete axisLayout.tick0;
+    delete axisLayout.dtick;
+    return;
+  }
+
+  axisLayout.autorange = false;
+  axisLayout.range = axisSpec.range;
+  axisLayout.tick0 = axisSpec.tick0;
+  axisLayout.dtick = axisSpec.dtick;
+}
+
+function storeViewportFromRelayout(eventData) {
+  if (!eventData) return false;
+
+  const viewport = state.ui.plotViewport;
+  const resetRequested = ["xaxis.autorange", "yaxis.autorange", "autosize"].some((key) => eventData[key]);
+  if (resetRequested) {
+    if (!viewport.lockXRange) viewport.manualXRange = null;
+    if (!viewport.lockYRange) viewport.manualYRange = null;
+    viewport.selectedXRange = null;
+    return true;
+  }
+
+  const xRange = normalizeRange([
+    eventData["xaxis.range[0]"],
+    eventData["xaxis.range[1]"],
+  ]) ?? normalizeRange(eventData["xaxis.range"]);
+
+  if (!xRange) return false;
+
+  viewport.selectedXRange = xRange;
+  if (!viewport.lockXRange) {
+    viewport.manualXRange = xRange;
+  }
+  return true;
+}
+
+function bindPlotInteractions(plotEl) {
+  if (plotEl.dataset.viewportBound === "true") return;
+
+  plotEl.on("plotly_relayout", async (eventData) => {
+    if (isApplyingViewport) return;
+    const changed = storeViewportFromRelayout(eventData);
+    if (!changed) return;
+    await renderPlot();
+  });
+
+  plotEl.dataset.viewportBound = "true";
+}
+
+export function getCurrentPlotRanges() {
+  const plotEl = document.getElementById("plot");
+  const xRange = normalizeRange(plotEl?._fullLayout?.xaxis?.range);
+  const yRange = normalizeRange(plotEl?._fullLayout?.yaxis?.range);
+  return { xRange, yRange };
+}
+
+export function applyManualAxisRanges({ xRange = null, yRange = null, lockXRange = false, lockYRange = false, snapXRange = true } = {}) {
+  const viewport = state.ui.plotViewport;
+  viewport.lockXRange = Boolean(lockXRange);
+  viewport.lockYRange = Boolean(lockYRange);
+  viewport.snapXRange = Boolean(snapXRange);
+
+  const normalizedX = normalizeRange(xRange);
+  const normalizedY = normalizeRange(yRange);
+
+  viewport.manualXRange = normalizedX;
+  viewport.selectedXRange = normalizedX;
+  viewport.manualYRange = normalizedY;
+}
+
+export async function snapCurrentXAxisRange() {
+  const current = getCurrentPlotRanges();
+  if (!current.xRange) return;
+  state.ui.plotViewport.manualXRange = current.xRange;
+  state.ui.plotViewport.selectedXRange = current.xRange;
+  await renderPlot();
+}
+
+export async function fixCurrentScale() {
+  const current = getCurrentPlotRanges();
+  if (!current.xRange && !current.yRange) return;
+  const viewport = state.ui.plotViewport;
+  if (current.xRange) {
+    viewport.manualXRange = current.xRange;
+    viewport.selectedXRange = current.xRange;
+    viewport.lockXRange = true;
+  }
+  if (current.yRange) {
+    viewport.manualYRange = current.yRange;
+    viewport.lockYRange = true;
+  }
+  await renderPlot();
+}
+
 export async function renderPlot() {
   const plotEl = document.getElementById("plot");
   if (!plotEl || !window.Plotly) return;
@@ -89,6 +352,8 @@ export async function renderPlot() {
     hovertemplate: "%{x}<br>%{y}<extra>%{fullData.name}</extra>",
   }));
 
+  const resolvedViewport = resolveViewport(traces);
+
   const layout = {
     paper_bgcolor: colors.paper,
     plot_bgcolor: colors.plot,
@@ -98,6 +363,7 @@ export async function renderPlot() {
     },
     xaxis: createAxisConfig(state.ui.xLabel, colors),
     yaxis: createAxisConfig(state.ui.yLabel, colors),
+    dragmode: "zoom",
     showlegend: true,
     legend: {
       orientation: "v",
@@ -123,13 +389,30 @@ export async function renderPlot() {
     },
   };
 
+  applyAxisLayout(layout.xaxis, resolvedViewport.xAxis);
+  applyAxisLayout(layout.yaxis, resolvedViewport.yAxis);
+
   const config = {
     responsive: true,
     displaylogo: false,
-    modeBarButtonsToRemove: ["lasso2d", "select2d"],
+    modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
+    scrollZoom: true,
   };
 
+  isApplyingViewport = true;
   await window.Plotly.react(plotEl, traces, layout, config);
+  plotEl.__currentTraces = traces;
+  isApplyingViewport = false;
+  bindPlotInteractions(plotEl);
+  syncAxisControlState(resolvedViewport);
+}
+
+export async function resetPlotZoom() {
+  const viewport = state.ui.plotViewport;
+  viewport.selectedXRange = null;
+  if (!viewport.lockXRange) viewport.manualXRange = null;
+  if (!viewport.lockYRange) viewport.manualYRange = null;
+  await renderPlot();
 }
 
 export async function exportPlotPng() {

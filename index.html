@@ -50,6 +50,14 @@
 
       <section class="center-panel">
         <section class="card plot-card">
+          <div class="plot-toolbar">
+            <p class="hint plot-hint">グラフ上をドラッグして範囲選択すると、選択領域を含みつつ切りのいい x 軸へ広げ、y 軸も自動で見やすく調整します。</p>
+            <div class="plot-toolbar-actions">
+              <button id="snapXAxisBtn" type="button">Snap X axis</button>
+              <button id="fixScaleBtn" type="button">Fix current scale</button>
+              <button id="resetZoomBtn" type="button" disabled>Reset zoom</button>
+            </div>
+          </div>
           <div id="plot" class="plot"></div>
         </section>
 
@@ -85,7 +93,41 @@
             Plot height
             <input id="plotHeightInput" type="number" min="300" max="1200" step="10" value="560" />
           </label>
-          <button id="applyViewBtn">Apply View</button>
+          <div class="axis-range-grid">
+            <label>
+              X min
+              <input id="xRangeMinInput" type="number" step="any" placeholder="auto" />
+            </label>
+            <label>
+              X max
+              <input id="xRangeMaxInput" type="number" step="any" placeholder="auto" />
+            </label>
+            <label>
+              Y min
+              <input id="yRangeMinInput" type="number" step="any" placeholder="auto" />
+            </label>
+            <label>
+              Y max
+              <input id="yRangeMaxInput" type="number" step="any" placeholder="auto" />
+            </label>
+          </div>
+          <label class="checkbox-row">
+            <input id="snapXRangeInput" type="checkbox" checked />
+            <span>x 軸を近くの切りのいい範囲に広げる</span>
+          </label>
+          <label class="checkbox-row">
+            <input id="lockXRangeInput" type="checkbox" />
+            <span>x 軸スケールを固定する</span>
+          </label>
+          <label class="checkbox-row">
+            <input id="lockYRangeInput" type="checkbox" />
+            <span>y 軸スケールを固定する</span>
+          </label>
+          <div class="button-row">
+            <button id="applyAxisRangeBtn" type="button">Apply ranges</button>
+            <button id="applyViewBtn">Apply View</button>
+          </div>
+          <p class="hint">数値入力で測定範囲を指定でき、固定スケールを使うと複数グラフの強度比較がしやすくなります。</p>
         </section>
 
         <section class="card">
