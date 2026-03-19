@@ -15,6 +15,10 @@ export const state = {
       lockYRange: false,
       snapXRange: true,
     },
+    cosmicRayRemoval: {
+      enabled: false,
+      halfWidth: 1,
+    },
   },
 };
 
