@@ -58,17 +58,12 @@
               <button id="resetZoomBtn" type="button" disabled>Reset zoom</button>
             </div>
           </div>
-          <div class="plot-stage">
-            <div id="plot" class="plot"></div>
-            <div id="peakMenu" class="peak-menu" hidden>
-              <div class="peak-menu-title">Selected peak</div>
-              <div id="peakMenuMeta" class="peak-menu-meta">ピークをクリックするとここに情報を表示します。</div>
-              <div class="peak-menu-actions">
-                <button id="normalizePeakBtn" type="button">Normalize this peak to 1</button>
-                <button id="closePeakMenuBtn" type="button">Close</button>
-              </div>
-            </div>
-          </div>
+          <div id="plot" class="plot"></div>
+        </section>
+
+        <section class="card">
+          <h2>Detected peaks</h2>
+          <div id="peakList" class="peak-list empty">ピークはまだ検出されていません。</div>
         </section>
       </section>
 
@@ -151,7 +146,7 @@
 
         <section class="card">
           <h2>Normalization</h2>
-          <p class="hint">ピーク検出後はグラフ上にマーカーが出ます。マーカーをクリックするとメニューが開き、そのピーク強度が 1 になるよう正規化できます。</p>
+          <p class="hint">ピーク検出後、下のリストからピークをクリックすると、そのピーク強度が 1 になるよう正規化します。</p>
           <button id="resetNormalizationBtn">Reset selected spectrum</button>
         </section>
 
