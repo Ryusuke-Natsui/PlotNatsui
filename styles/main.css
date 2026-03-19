@@ -93,7 +93,12 @@ html, body {
 }
 
 .plot-card {
-  padding: 12px;
+  padding: 18px;
+  background: #ffffff;
+}
+
+body.dark .plot-card {
+  background: #0b0b0d;
 }
 
 .plot {
