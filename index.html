@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Spectrum Plotter PWA</title>
+    <meta name="theme-color" content="#1f2937" />
+    <meta name="description" content="Raman / PL spectrum plotting and comparison PWA" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./assets/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./assets/icons/icon-192.png" />
+    <link rel="stylesheet" href="./styles/main.css" />
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
+    <script type="module" src="./src/main.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Spectrum Plotter PWA</h1>
+        <p>Raman / PL / absorbance data comparison</p>
+      </div>
+      <div class="topbar-actions">
+        <button id="installBtn" hidden>Install</button>
+        <button id="exportPngBtn">PNG</button>
+        <button id="saveProjectBtn">Save Project</button>
+        <label class="file-inline">
+          Load Project
+          <input id="projectInput" type="file" accept=".json,application/json" hidden />
+        </label>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel left-panel">
+        <section class="card">
+          <h2>Files</h2>
+          <label class="file-drop">
+            <span>Select spectra</span>
+            <input id="fileInput" type="file" multiple accept=".txt,.csv,.tsv,.dat,text/plain,text/csv" />
+          </label>
+          <p class="hint">複数ファイルを同時に読み込めます。</p>
+        </section>
+
+        <section class="card">
+          <h2>Loaded spectra</h2>
+          <div id="traceList" class="trace-list"></div>
+        </section>
+      </aside>
+
+      <section class="center-panel">
+        <section class="card plot-card">
+          <div id="plot" class="plot"></div>
+        </section>
+
+        <section class="card">
+          <h2>Detected peaks</h2>
+          <div id="peakList" class="peak-list empty">ピークはまだ検出されていません。</div>
+        </section>
+      </section>
+
+      <aside class="panel right-panel">
+        <section class="card">
+          <h2>View</h2>
+          <label>
+            X label
+            <input id="xLabelInput" type="text" value="Raman shift / cm⁻¹" />
+          </label>
+          <label>
+            Y label
+            <input id="yLabelInput" type="text" value="Intensity / a.u." />
+          </label>
+          <label>
+            Theme
+            <select id="themeSelect">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <label>
+            Offset step
+            <input id="offsetStepInput" type="number" min="0" step="0.1" value="0" />
+          </label>
+          <label>
+            Plot height
+            <input id="plotHeightInput" type="number" min="300" max="1200" step="10" value="560" />
+          </label>
+          <button id="applyViewBtn">Apply View</button>
+        </section>
+
+        <section class="card">
+          <h2>Peak detection</h2>
+          <label>
+            Min prominence
+            <input id="prominenceInput" type="number" min="0" step="0.001" value="10" />
+          </label>
+          <label>
+            Min distance (points)
+            <input id="distanceInput" type="number" min="1" step="1" value="5" />
+          </label>
+          <button id="detectPeaksBtn">Detect peaks of selected spectrum</button>
+          <p class="hint">左のスペクトル一覧で選択中の 1 本を対象に検出します。</p>
+        </section>
+
+        <section class="card">
+          <h2>Normalization</h2>
+          <p class="hint">ピーク検出後、下のリストからピークをクリックすると、そのピーク強度が 1 になるよう正規化します。</p>
+          <button id="resetNormalizationBtn">Reset selected spectrum</button>
+        </section>
+
+        <section class="card">
+          <h2>Next extensions</h2>
+          <ul class="checklist">
+            <li>Baseline correction</li>
+            <li>Smoothing</li>
+            <li>Multi-peak fitting</li>
+            <li>ROI / inset</li>
+            <li>Batch export</li>
+          </ul>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <span>Starter for GitHub Pages + PWA</span>
+      <span id="statusText">Ready.</span>
+    </footer>
+  </body>
+</html>
