@@ -171,6 +171,41 @@ async function handleProjectFile(file) {
   setStatus("プロジェクトを読み込みました。");
 }
 
+function bindSpectrumDropzone() {
+  const dropzone = document.getElementById("fileDropzone");
+  const fileInput = document.getElementById("fileInput");
+  if (!dropzone || !fileInput) return;
+
+  const setDragActive = (active) => {
+    dropzone.classList.toggle("drag-active", active);
+  };
+
+  ["dragenter", "dragover"].forEach((type) => {
+    dropzone.addEventListener(type, (event) => {
+      event.preventDefault();
+      setDragActive(true);
+    });
+  });
+
+  ["dragleave", "dragend"].forEach((type) => {
+    dropzone.addEventListener(type, (event) => {
+      event.preventDefault();
+      if (!dropzone.contains(event.relatedTarget)) {
+        setDragActive(false);
+      }
+    });
+  });
+
+  dropzone.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    setDragActive(false);
+    if (event.dataTransfer?.files?.length) {
+      await handleSpectrumFiles(event.dataTransfer.files);
+      fileInput.value = "";
+    }
+  });
+}
+
 export function bindUi() {
   document.getElementById("fileInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.length) {
@@ -178,6 +213,8 @@ export function bindUi() {
       event.target.value = "";
     }
   });
+
+  bindSpectrumDropzone();
 
   document.getElementById("projectInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.[0]) {
