@@ -1,8 +1,8 @@
 import { state, addSpectrum, removeSpectrum, updateSpectrum, selectSpectrum, getSelectedSpectrum, importProject } from "./state.js";
 import { parseSpectrumFile } from "./parser.js";
-import { renderPlot, exportPlotPng, resetPlotZoom, applyManualAxisRanges, snapCurrentXAxisRange, fixCurrentScale, getCurrentPlotRanges } from "./plot.js";
+import { renderPlot, exportPlotPng, resetPlotZoom, applyManualAxisRanges, snapCurrentXAxisRange, fixCurrentScale, getCurrentPlotRanges, setPlotPointSelectionHandler } from "./plot.js";
 import { detectPeaks } from "./peaks.js";
-import { normalizeByPeakIndex, resetProcessed } from "./process.js";
+import { normalizeByPeakIndex, resetProcessed, hasMeasurementTimeSpectra } from "./process.js";
 import { saveProjectJson } from "./export.js";
 
 const peakMenuState = {
@@ -15,6 +15,18 @@ const peakMenuState = {
   prominence: null,
   clientX: 0,
   clientY: 0,
+const X_LABEL_PRESETS = {
+  raman: "Raman shift / cm⁻¹",
+  pl: "Wavelength / nm",
+  energy: "Photon energy / eV",
+  custom: null,
+};
+
+const Y_LABEL_PRESETS = {
+  "a.u.": "Intensity (a.u.)",
+  counts: "Intensity (counts)",
+  cps: "Intensity (cps)",
+  custom: null,
 };
 
 function setStatus(message) {
@@ -55,6 +67,17 @@ function openPeakMenu(detail = {}) {
   peakMenuState.prominence = detail.prominence ?? null;
   peakMenuState.clientX = detail.clientX ?? 0;
   peakMenuState.clientY = detail.clientY ?? 0;
+function resolveLabelFromPreset(presetMap, presetKey, fallback) {
+  return presetMap[presetKey] ?? fallback;
+}
+
+function syncAutoYLabel() {
+  if (hasMeasurementTimeSpectra(state.spectra)) {
+    state.ui.yLabelPreset = "cps";
+    state.ui.yLabel = Y_LABEL_PRESETS.cps;
+  } else if (state.ui.yLabelPreset !== "custom") {
+    state.ui.yLabel = resolveLabelFromPreset(Y_LABEL_PRESETS, state.ui.yLabelPreset, state.ui.yLabel);
+  }
 }
 
 function renderTraceList() {
@@ -86,6 +109,10 @@ function renderTraceList() {
         <label>
           Offset
           <input type="number" class="trace-offset" step="0.1" value="${Number(s.offset) || 0}" />
+        </label>
+        <label>
+          Measurement time (s)
+          <input type="number" class="trace-measurement-time" min="0" step="0.001" placeholder="counts only" value="${s.measurementTimeSeconds ?? ""}" />
         </label>
       </div>
     </div>
@@ -123,9 +150,24 @@ function renderTraceList() {
       await renderPlot();
     });
 
+    item.querySelector(".trace-measurement-time")?.addEventListener("change", async (event) => {
+      const rawValue = event.target.value.trim();
+      const measurementTimeSeconds = rawValue === "" ? null : Number(rawValue);
+      updateSpectrum(id, {
+        measurementTimeSeconds: Number.isFinite(measurementTimeSeconds) && measurementTimeSeconds > 0 ? measurementTimeSeconds : null,
+      });
+      syncAutoYLabel();
+      renderAll();
+      await renderPlot();
+      setStatus(hasMeasurementTimeSpectra(state.spectra)
+        ? "測定時間を反映し、Intensity (cps) に切り替えました。"
+        : "測定時間をクリアしました。");
+    });
+
     item.querySelector(".trace-remove-btn")?.addEventListener("click", async () => {
       removeSpectrum(id);
       closePeakMenu();
+      syncAutoYLabel();
       renderAll();
       await renderPlot();
       setStatus("スペクトルを削除しました。");
@@ -174,6 +216,40 @@ function renderPeakMenu() {
   menu.style.top = `${safeTop}px`;
 }
 
+function renderCosmicRayControls() {
+  const spectrum = getSelectedSpectrum();
+  const enabledInput = document.getElementById("cosmicRayModeInput");
+  const halfWidthInput = document.getElementById("cosmicRayHalfWidthInput");
+  const selectionText = document.getElementById("cosmicRaySelectionText");
+  const removeBtn = document.getElementById("removeCosmicRayBtn");
+  const undoBtn = document.getElementById("undoCosmicRayBtn");
+  const clearBtn = document.getElementById("clearCosmicRaySelectionBtn");
+
+  if (enabledInput) enabledInput.checked = Boolean(state.ui.cosmicRayRemoval?.enabled);
+  if (halfWidthInput) halfWidthInput.value = String(state.ui.cosmicRayRemoval?.halfWidth ?? 1);
+
+  if (!spectrum) {
+    if (selectionText) selectionText.textContent = "スペクトルを選択してください。";
+    if (removeBtn) removeBtn.disabled = true;
+    if (undoBtn) undoBtn.disabled = true;
+    if (clearBtn) clearBtn.disabled = true;
+    return;
+  }
+
+  const index = spectrum.selectedRemovalPointIndex;
+  if (Number.isInteger(index)) {
+    const x = spectrum.xProcessed[index];
+    const y = spectrum.yProcessed[index];
+    if (selectionText) selectionText.textContent = `選択中: index ${index}, x = ${Number(x).toFixed(4)}, y = ${Number(y).toFixed(4)}`;
+  } else if (selectionText) {
+    selectionText.textContent = "まだ点は選択されていません。";
+  }
+
+  if (removeBtn) removeBtn.disabled = !Number.isInteger(index);
+  if (undoBtn) undoBtn.disabled = !(spectrum.cosmicRayHistory?.length);
+  if (clearBtn) clearBtn.disabled = !Number.isInteger(index);
+}
+
 function parseOptionalNumber(inputId) {
   const input = document.getElementById(inputId);
   if (!input) return null;
@@ -190,15 +266,33 @@ function getRangeFromInputs(minId, maxId) {
   return min < max ? [min, max] : [max, min];
 }
 
+function renderLabelControls() {
+  const xPresetInput = document.getElementById("xLabelPresetInput");
+  const yPresetInput = document.getElementById("yLabelPresetInput");
+  const xLabelInput = document.getElementById("xLabelInput");
+  const yLabelInput = document.getElementById("yLabelInput");
+
+  if (xPresetInput) xPresetInput.value = state.ui.xLabelPreset;
+  if (yPresetInput) yPresetInput.value = hasMeasurementTimeSpectra(state.spectra) ? "cps" : state.ui.yLabelPreset;
+  if (xLabelInput) xLabelInput.value = state.ui.xLabel;
+  if (yLabelInput) yLabelInput.value = state.ui.yLabel;
+  if (xLabelInput) xLabelInput.disabled = state.ui.xLabelPreset !== "custom";
+  if (yLabelInput) yLabelInput.disabled = hasMeasurementTimeSpectra(state.spectra) || state.ui.yLabelPreset !== "custom";
+}
+
 export function renderAll() {
+  syncAutoYLabel();
   document.body.classList.toggle("dark", state.ui.theme === "dark");
-  document.getElementById("xLabelInput").value = state.ui.xLabel;
-  document.getElementById("yLabelInput").value = state.ui.yLabel;
+  renderLabelControls();
   document.getElementById("themeSelect").value = state.ui.theme;
   document.getElementById("offsetStepInput").value = state.ui.offsetStep;
   document.getElementById("plotHeightInput").value = state.ui.plotHeight;
+  document.getElementById("axisTitleFontSizeInput").value = state.ui.axisTitleFontSize;
+  document.getElementById("axisTickFontSizeInput").value = state.ui.axisTickFontSize;
   renderTraceList();
   renderPeakMenu();
+  renderPeakList();
+  renderCosmicRayControls();
 }
 
 async function handleSpectrumFiles(fileList) {
@@ -211,6 +305,7 @@ async function handleSpectrumFiles(fileList) {
       setStatus(error.message);
     }
   }
+  syncAutoYLabel();
   renderAll();
   await renderPlot();
   setStatus(`${files.length} file(s) loaded.`);
@@ -226,37 +321,49 @@ async function handleProjectFile(file) {
   setStatus("プロジェクトを読み込みました。");
 }
 
-function bindSpectrumDropzone() {
-  const dropzone = document.getElementById("fileDropzone");
-  const fileInput = document.getElementById("fileInput");
-  if (!dropzone || !fileInput) return;
+function bindFileDropTarget(dropzone, onDropFiles) {
+  if (!dropzone) return;
 
+  let dragDepth = 0;
+
+  const isFileDrag = (event) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
   const setDragActive = (active) => {
     dropzone.classList.toggle("drag-active", active);
   };
 
-  ["dragenter", "dragover"].forEach((type) => {
-    dropzone.addEventListener(type, (event) => {
-      event.preventDefault();
-      setDragActive(true);
-    });
+  dropzone.addEventListener("dragenter", (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepth += 1;
+    setDragActive(true);
   });
 
-  ["dragleave", "dragend"].forEach((type) => {
-    dropzone.addEventListener(type, (event) => {
-      event.preventDefault();
-      if (!dropzone.contains(event.relatedTarget)) {
-        setDragActive(false);
-      }
-    });
+  dropzone.addEventListener("dragover", (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    setDragActive(true);
+  });
+
+  dropzone.addEventListener("dragleave", (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) setDragActive(false);
+  });
+
+  dropzone.addEventListener("dragend", () => {
+    dragDepth = 0;
+    setDragActive(false);
   });
 
   dropzone.addEventListener("drop", async (event) => {
+    if (!isFileDrag(event)) return;
     event.preventDefault();
+    dragDepth = 0;
     setDragActive(false);
     if (event.dataTransfer?.files?.length) {
-      await handleSpectrumFiles(event.dataTransfer.files);
-      fileInput.value = "";
+      await onDropFiles(event.dataTransfer.files);
     }
   });
 }
@@ -309,10 +416,22 @@ function bindPeakMenu() {
     if (event.key !== "Escape" || !peakMenuState.open) return;
     closePeakMenu();
     renderPeakMenu();
+function bindSpectrumDropzones() {
+  const fileInput = document.getElementById("fileInput");
+  const dropzones = [document.getElementById("fileDropzone"), document.getElementById("plotDropzone")].filter(Boolean);
+  if (!fileInput || !dropzones.length) return;
+
+  dropzones.forEach((dropzone) => {
+    bindFileDropTarget(dropzone, async (files) => {
+      await handleSpectrumFiles(files);
+      fileInput.value = "";
+    });
   });
 }
 
 export function bindUi() {
+  setPlotPointSelectionHandler(handlePlotPointSelection);
+
   document.getElementById("fileInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.length) {
       await handleSpectrumFiles(event.target.files);
@@ -322,12 +441,35 @@ export function bindUi() {
 
   bindSpectrumDropzone();
   bindPeakMenu();
+  bindSpectrumDropzones();
 
   document.getElementById("projectInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.[0]) {
       await handleProjectFile(event.target.files[0]);
       event.target.value = "";
     }
+  });
+
+  document.getElementById("xLabelPresetInput")?.addEventListener("change", (event) => {
+    const preset = event.target.value;
+    state.ui.xLabelPreset = preset;
+    if (preset !== "custom") {
+      state.ui.xLabel = resolveLabelFromPreset(X_LABEL_PRESETS, preset, state.ui.xLabel);
+    }
+    renderLabelControls();
+  });
+
+  document.getElementById("yLabelPresetInput")?.addEventListener("change", (event) => {
+    if (hasMeasurementTimeSpectra(state.spectra)) {
+      renderLabelControls();
+      return;
+    }
+    const preset = event.target.value;
+    state.ui.yLabelPreset = preset;
+    if (preset !== "custom") {
+      state.ui.yLabel = resolveLabelFromPreset(Y_LABEL_PRESETS, preset, state.ui.yLabel);
+    }
+    renderLabelControls();
   });
 
   document.getElementById("resetZoomBtn")?.addEventListener("click", async () => {
@@ -361,11 +503,22 @@ export function bindUi() {
   });
 
   document.getElementById("applyViewBtn")?.addEventListener("click", async () => {
-    state.ui.xLabel = document.getElementById("xLabelInput").value.trim() || state.ui.xLabel;
-    state.ui.yLabel = document.getElementById("yLabelInput").value.trim() || state.ui.yLabel;
+    const xPreset = document.getElementById("xLabelPresetInput").value;
+    const yPreset = document.getElementById("yLabelPresetInput").value;
+    state.ui.xLabelPreset = xPreset;
+    state.ui.yLabelPreset = hasMeasurementTimeSpectra(state.spectra) ? "cps" : yPreset;
+    state.ui.xLabel = xPreset === "custom"
+      ? (document.getElementById("xLabelInput").value.trim() || state.ui.xLabel)
+      : resolveLabelFromPreset(X_LABEL_PRESETS, xPreset, state.ui.xLabel);
+    state.ui.yLabel = state.ui.yLabelPreset === "custom"
+      ? (document.getElementById("yLabelInput").value.trim() || state.ui.yLabel)
+      : resolveLabelFromPreset(Y_LABEL_PRESETS, state.ui.yLabelPreset, state.ui.yLabel);
+    syncAutoYLabel();
     state.ui.theme = document.getElementById("themeSelect").value;
     state.ui.offsetStep = Number(document.getElementById("offsetStepInput").value) || 0;
     state.ui.plotHeight = Number(document.getElementById("plotHeightInput").value) || 560;
+    state.ui.axisTitleFontSize = Number(document.getElementById("axisTitleFontSizeInput").value) || 30;
+    state.ui.axisTickFontSize = Number(document.getElementById("axisTickFontSizeInput").value) || 18;
     renderAll();
     await renderPlot();
     setStatus("表示設定を更新しました。");
@@ -396,6 +549,54 @@ export function bindUi() {
     renderAll();
     await renderPlot();
     setStatus("選択スペクトルを元データに戻しました。");
+  });
+
+  document.getElementById("cosmicRayModeInput")?.addEventListener("change", (event) => {
+    state.ui.cosmicRayRemoval.enabled = event.target.checked;
+    renderCosmicRayControls();
+    setStatus(event.target.checked
+      ? "点選択モードを有効にしました。グラフ上の対象点をクリックしてください。"
+      : "点選択モードを無効にしました。");
+  });
+
+  document.getElementById("cosmicRayHalfWidthInput")?.addEventListener("change", (event) => {
+    state.ui.cosmicRayRemoval.halfWidth = Math.max(0, Math.floor(Number(event.target.value) || 0));
+    renderCosmicRayControls();
+  });
+
+  document.getElementById("removeCosmicRayBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    try {
+      const result = removeSelectedSpike(spectrum, state.ui.cosmicRayRemoval.halfWidth);
+      renderAll();
+      await renderPlot();
+      setStatus(`宇宙線由来の鋭い線を補間除去しました (index ${result.start} - ${result.end})。`);
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  document.getElementById("undoCosmicRayBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    try {
+      const result = undoLastSpikeRemoval(spectrum);
+      renderAll();
+      await renderPlot();
+      setStatus(`直前の宇宙線除去を元に戻しました (index ${result.start} - ${result.end})。`);
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  document.getElementById("clearCosmicRaySelectionBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    clearRemovalPoint(spectrum);
+    renderCosmicRayControls();
+    await renderPlot();
+    setStatus("除去対象点の選択をクリアしました。");
   });
 
   document.getElementById("exportPngBtn")?.addEventListener("click", async () => {

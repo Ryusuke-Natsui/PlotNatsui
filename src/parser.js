@@ -49,8 +49,11 @@ export async function parseSpectrumFile(file) {
     color: "",
     lineWidth: 2,
     offset: 0,
+    measurementTimeSeconds: null,
     normalization: null,
     detectedPeaks: [],
+    selectedRemovalPointIndex: null,
+    cosmicRayHistory: [],
     metadata: {
       pointCount: x.length,
     },

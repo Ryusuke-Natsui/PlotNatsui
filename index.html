@@ -58,17 +58,18 @@
               <button id="resetZoomBtn" type="button" disabled>Reset zoom</button>
             </div>
           </div>
-          <div class="plot-stage">
+          <div id="plotDropzone" class="plot-dropzone">
             <div id="plot" class="plot"></div>
-            <div id="peakMenu" class="peak-menu" hidden>
-              <div class="peak-menu-title">Selected peak</div>
-              <div id="peakMenuMeta" class="peak-menu-meta">ピークをクリックするとここに情報を表示します。</div>
-              <div class="peak-menu-actions">
-                <button id="normalizePeakBtn" type="button">Normalize this peak to 1</button>
-                <button id="closePeakMenuBtn" type="button">Close</button>
-              </div>
+            <div class="plot-drop-overlay" aria-hidden="true">
+              <span class="plot-drop-title">入力データをここにドロップ</span>
+              <span class="plot-drop-subtitle">txt / csv / tsv / dat をそのまま追加できます</span>
             </div>
           </div>
+        </section>
+
+        <section class="card">
+          <h2>Detected peaks</h2>
+          <div id="peakList" class="peak-list empty">ピークはまだ検出されていません。</div>
         </section>
       </section>
 
@@ -76,12 +77,30 @@
         <section class="card">
           <h2>View</h2>
           <label>
+            X label preset
+            <select id="xLabelPresetInput">
+              <option value="raman">Raman shift / cm⁻¹</option>
+              <option value="pl">PL wavelength / nm</option>
+              <option value="energy">Photon energy / eV</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label>
             X label
             <input id="xLabelInput" type="text" value="Raman shift / cm⁻¹" />
           </label>
           <label>
+            Y label preset
+            <select id="yLabelPresetInput">
+              <option value="a.u.">Intensity (a.u.)</option>
+              <option value="counts">Intensity (counts)</option>
+              <option value="cps">Intensity (cps)</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label>
             Y label
-            <input id="yLabelInput" type="text" value="Intensity / a.u." />
+            <input id="yLabelInput" type="text" value="Intensity (a.u.)" />
           </label>
           <label>
             Theme
@@ -97,6 +116,14 @@
           <label>
             Plot height
             <input id="plotHeightInput" type="number" min="300" max="1200" step="10" value="560" />
+          </label>
+          <label>
+            Axis label size
+            <input id="axisTitleFontSizeInput" type="number" min="12" max="72" step="1" value="30" />
+          </label>
+          <label>
+            Tick label size
+            <input id="axisTickFontSizeInput" type="number" min="8" max="48" step="1" value="18" />
           </label>
           <div class="axis-range-grid">
             <label>
@@ -132,7 +159,7 @@
             <button id="applyAxisRangeBtn" type="button">Apply ranges</button>
             <button id="applyViewBtn">Apply View</button>
           </div>
-          <p class="hint">数値入力で測定範囲を指定でき、固定スケールを使うと複数グラフの強度比較がしやすくなります。</p>
+          <p class="hint">ラベルの定番候補を選べます。各スペクトルに測定時間を入れると、その系列は cps 換算され、y 軸ラベルも自動で Intensity (cps) になります。</p>
         </section>
 
         <section class="card">
@@ -153,6 +180,25 @@
           <h2>Normalization</h2>
           <p class="hint">ピーク検出後はグラフ上にマーカーが出ます。マーカーをクリックするとメニューが開き、そのピーク強度が 1 になるよう正規化できます。</p>
           <button id="resetNormalizationBtn">Reset selected spectrum</button>
+        </section>
+
+        <section class="card">
+          <h2>Cosmic ray cleanup</h2>
+          <p class="hint">選択中スペクトルに対して点選択モードを有効にし、グラフ上で宇宙線由来の鋭い線をクリックして補間除去します。</p>
+          <label class="checkbox-row">
+            <input id="cosmicRayModeInput" type="checkbox" />
+            <span>点選択モードを有効にする</span>
+          </label>
+          <label>
+            補間する半幅 (points)
+            <input id="cosmicRayHalfWidthInput" type="number" min="0" step="1" value="1" />
+          </label>
+          <div id="cosmicRaySelectionText" class="hint">まだ点は選択されていません。</div>
+          <div class="button-row">
+            <button id="removeCosmicRayBtn" type="button">Remove selected spike</button>
+            <button id="undoCosmicRayBtn" type="button">Undo last removal</button>
+          </div>
+          <button id="clearCosmicRaySelectionBtn" type="button">Clear selected point</button>
         </section>
 
         <section class="card">
