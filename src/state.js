@@ -77,6 +77,13 @@ export function exportProject() {
 
 export function importProject(project) {
   state.spectra = (project.spectra ?? []).map((spectrum) => ({
+    visible: true,
+    color: "",
+    lineStyle: "solid",
+    lineWidth: 2,
+    offset: 0,
+    detectedPeaks: [],
+    metadata: {},
     measurementTimeSeconds: null,
     ...spectrum,
   }));

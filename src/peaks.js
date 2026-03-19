@@ -1,5 +1,5 @@
 export function detectPeaks(x, y, options = {}) {
-  const minProminence = Number(options.minProminence ?? 10);
+  const minProminence = Number(options.minProminence ?? options.prominence ?? 10);
   const minDistance = Math.max(1, Number(options.minDistance ?? 5));
 
   if (!Array.isArray(x) || !Array.isArray(y) || x.length !== y.length || x.length < 3) {

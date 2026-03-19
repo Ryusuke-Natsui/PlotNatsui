@@ -446,6 +446,19 @@ export async function renderPlot() {
     state.ui.offsetStep
   );
 
+  const traces = prepared.map((s, index) => ({
+    x: s.xPlot,
+    y: s.yPlot,
+    type: "scatter",
+    mode: "lines",
+    name: s.name,
+    line: {
+      color: s.color || defaultColor(index),
+      width: Number(s.lineWidth) || 2,
+      dash: s.lineStyle || "solid",
+    },
+    hovertemplate: "%{x}<br>%{y}<extra>%{fullData.name}</extra>",
+  }));
   const traces = prepared.flatMap((s, index) => {
     const lineTrace = {
       x: s.xPlot,
