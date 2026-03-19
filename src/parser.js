@@ -47,6 +47,7 @@ export async function parseSpectrumFile(file) {
     yProcessed: [...y],
     visible: true,
     color: "",
+    lineStyle: "solid",
     lineWidth: 2,
     offset: 0,
     normalization: null,

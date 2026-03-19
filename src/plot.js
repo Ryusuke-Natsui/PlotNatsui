@@ -348,6 +348,7 @@ export async function renderPlot() {
     line: {
       color: s.color || defaultColor(index),
       width: Number(s.lineWidth) || 2,
+      dash: s.lineStyle || "solid",
     },
     hovertemplate: "%{x}<br>%{y}<extra>%{fullData.name}</extra>",
   }));

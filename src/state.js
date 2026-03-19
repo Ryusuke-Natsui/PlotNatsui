@@ -55,7 +55,16 @@ export function exportProject() {
 }
 
 export function importProject(project) {
-  state.spectra = project.spectra ?? [];
+  state.spectra = (project.spectra ?? []).map((spectrum) => ({
+    visible: true,
+    color: "",
+    lineStyle: "solid",
+    lineWidth: 2,
+    offset: 0,
+    detectedPeaks: [],
+    metadata: {},
+    ...spectrum,
+  }));
   state.selectedSpectrumId = project.selectedSpectrumId ?? state.spectra[0]?.id ?? null;
   state.ui = {
     ...state.ui,

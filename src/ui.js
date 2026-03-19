@@ -5,6 +5,18 @@ import { detectPeaks } from "./peaks.js";
 import { normalizeByPeakIndex, resetProcessed } from "./process.js";
 import { saveProjectJson } from "./export.js";
 
+const DEFAULT_TRACE_COLORS = [
+  "#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed",
+  "#0891b2", "#4b5563", "#db2777", "#65a30d", "#ea580c",
+];
+
+const TRACE_LINE_STYLE_OPTIONS = [
+  { value: "solid", label: "Solid" },
+  { value: "dash", label: "Dash" },
+  { value: "dot", label: "Dot" },
+  { value: "dashdot", label: "Dash dot" },
+];
+
 function setStatus(message) {
   const el = document.getElementById("statusText");
   if (el) el.textContent = message;
@@ -28,30 +40,48 @@ function renderTraceList() {
     return;
   }
 
-  container.innerHTML = state.spectra.map((s) => `
-    <div class="trace-item" data-trace-id="${s.id}">
-      <div class="trace-head">
-        <button class="trace-select-btn">${state.selectedSpectrumId === s.id ? "Selected" : "Select"}</button>
-        <span class="badge">${s.metadata?.pointCount ?? 0} pts</span>
+  container.innerHTML = state.spectra.map((s, index) => {
+    const fallbackColor = s.color || DEFAULT_TRACE_COLORS[index % DEFAULT_TRACE_COLORS.length];
+    const styleOptions = TRACE_LINE_STYLE_OPTIONS.map((option) => `
+      <option value="${option.value}" ${(s.lineStyle || "solid") === option.value ? "selected" : ""}>${option.label}</option>
+    `).join("");
+
+    return `
+      <div class="trace-item" data-trace-id="${s.id}">
+        <div class="trace-head">
+          <button class="trace-select-btn">${state.selectedSpectrumId === s.id ? "Selected" : "Select"}</button>
+          <span class="badge">${s.metadata?.pointCount ?? 0} pts</span>
+        </div>
+        <div class="trace-name">${escapeHtml(s.name)}</div>
+        <div class="trace-row">
+          <label><input type="checkbox" class="trace-visible" ${s.visible ? "checked" : ""} /> show</label>
+          <input type="text" class="trace-rename" value="${escapeHtml(s.name)}" />
+          <button class="trace-remove-btn">Remove</button>
+        </div>
+        <div class="trace-controls trace-controls-extended">
+          <label>
+            Color
+            <div class="trace-color-row">
+              <input type="color" class="trace-color-picker" value="${escapeHtml(fallbackColor)}" />
+              <input type="text" class="trace-color-text" value="${escapeHtml(fallbackColor)}" placeholder="#2563eb" />
+            </div>
+          </label>
+          <label>
+            Line style
+            <select class="trace-line-style">${styleOptions}</select>
+          </label>
+          <label>
+            Line width
+            <input type="number" class="trace-width" min="1" step="0.5" value="${Number(s.lineWidth) || 2}" />
+          </label>
+          <label>
+            Offset
+            <input type="number" class="trace-offset" step="0.1" value="${Number(s.offset) || 0}" />
+          </label>
+        </div>
       </div>
-      <div class="trace-name">${escapeHtml(s.name)}</div>
-      <div class="trace-row">
-        <label><input type="checkbox" class="trace-visible" ${s.visible ? "checked" : ""} /> show</label>
-        <input type="text" class="trace-rename" value="${escapeHtml(s.name)}" />
-        <button class="trace-remove-btn">Remove</button>
-      </div>
-      <div class="trace-controls">
-        <label>
-          Line width
-          <input type="number" class="trace-width" min="1" step="0.5" value="${Number(s.lineWidth) || 2}" />
-        </label>
-        <label>
-          Offset
-          <input type="number" class="trace-offset" step="0.1" value="${Number(s.offset) || 0}" />
-        </label>
-      </div>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 
   container.querySelectorAll(".trace-item").forEach((item) => {
     const id = item.dataset.traceId;
@@ -76,6 +106,37 @@ function renderTraceList() {
 
     item.querySelector(".trace-width")?.addEventListener("change", async (event) => {
       updateSpectrum(id, { lineWidth: Number(event.target.value) || 2 });
+      await renderPlot();
+    });
+
+    const colorPicker = item.querySelector(".trace-color-picker");
+    const colorText = item.querySelector(".trace-color-text");
+
+    const applyTraceColor = async (rawValue) => {
+      const normalizedColor = normalizeHexColor(rawValue);
+      if (!normalizedColor) {
+        const spectrumIndex = state.spectra.findIndex((entry) => entry.id === id);
+        const fallback = spectrumIndex >= 0 ? DEFAULT_TRACE_COLORS[spectrumIndex % DEFAULT_TRACE_COLORS.length] : "#2563eb";
+        const spectrum = state.spectra.find((entry) => entry.id === id);
+        colorText.value = spectrum?.color || fallback;
+        return;
+      }
+      if (colorPicker) colorPicker.value = normalizedColor;
+      if (colorText) colorText.value = normalizedColor;
+      updateSpectrum(id, { color: normalizedColor });
+      await renderPlot();
+    };
+
+    colorPicker?.addEventListener("input", async (event) => {
+      await applyTraceColor(event.target.value);
+    });
+
+    colorText?.addEventListener("change", async (event) => {
+      await applyTraceColor(event.target.value);
+    });
+
+    item.querySelector(".trace-line-style")?.addEventListener("change", async (event) => {
+      updateSpectrum(id, { lineStyle: event.target.value || "solid" });
       await renderPlot();
     });
 
@@ -134,6 +195,13 @@ function renderPeakList() {
       }
     });
   });
+}
+
+function normalizeHexColor(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  const withHash = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+  return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toLowerCase() : null;
 }
 
 function parseOptionalNumber(inputId) {
@@ -220,58 +288,37 @@ function bindSpectrumDropzone() {
       fileInput.value = "";
     }
   });
-}
 
-export function bindUi() {
-  document.getElementById("fileInput")?.addEventListener("change", async (event) => {
+  fileInput.addEventListener("change", async (event) => {
     if (event.target.files?.length) {
       await handleSpectrumFiles(event.target.files);
       event.target.value = "";
     }
   });
+}
 
+export function bindUi() {
   bindSpectrumDropzone();
 
   document.getElementById("projectInput")?.addEventListener("change", async (event) => {
-    if (event.target.files?.[0]) {
-      await handleProjectFile(event.target.files[0]);
-      event.target.value = "";
-    }
+    const [file] = event.target.files ?? [];
+    if (!file) return;
+    await handleProjectFile(file);
+    event.target.value = "";
   });
 
-  document.getElementById("resetZoomBtn")?.addEventListener("click", async () => {
-    await resetPlotZoom();
-    setStatus("ズームをリセットしました。");
+  document.getElementById("exportPngBtn")?.addEventListener("click", async () => {
+    await exportPlotPng();
   });
 
-  document.getElementById("applyAxisRangeBtn")?.addEventListener("click", async () => {
-    const xRange = getRangeFromInputs("xRangeMinInput", "xRangeMaxInput");
-    const yRange = getRangeFromInputs("yRangeMinInput", "yRangeMaxInput");
-    const lockXRange = document.getElementById("lockXRangeInput")?.checked ?? false;
-    const lockYRange = document.getElementById("lockYRangeInput")?.checked ?? false;
-    const snapXRange = document.getElementById("snapXRangeInput")?.checked ?? true;
-
-    applyManualAxisRanges({ xRange, yRange, lockXRange, lockYRange, snapXRange });
-    await renderPlot();
-    setStatus("数値指定の表示範囲を適用しました。");
-  });
-
-  document.getElementById("snapXAxisBtn")?.addEventListener("click", async () => {
-    await snapCurrentXAxisRange();
-    setStatus("現在の x 表示範囲を切りのいい目盛りに合わせました。");
-  });
-
-  document.getElementById("fixScaleBtn")?.addEventListener("click", async () => {
-    await fixCurrentScale();
-    const { xRange, yRange } = getCurrentPlotRanges();
-    document.getElementById("lockXRangeInput").checked = Boolean(xRange);
-    document.getElementById("lockYRangeInput").checked = Boolean(yRange);
-    setStatus("現在の表示範囲を固定スケールとして保存しました。");
+  document.getElementById("saveProjectBtn")?.addEventListener("click", () => {
+    saveProjectJson();
+    setStatus("プロジェクトを書き出しました。");
   });
 
   document.getElementById("applyViewBtn")?.addEventListener("click", async () => {
-    state.ui.xLabel = document.getElementById("xLabelInput").value.trim() || state.ui.xLabel;
-    state.ui.yLabel = document.getElementById("yLabelInput").value.trim() || state.ui.yLabel;
+    state.ui.xLabel = document.getElementById("xLabelInput").value.trim() || "X";
+    state.ui.yLabel = document.getElementById("yLabelInput").value.trim() || "Y";
     state.ui.theme = document.getElementById("themeSelect").value;
     state.ui.offsetStep = Number(document.getElementById("offsetStepInput").value) || 0;
     state.ui.plotHeight = Number(document.getElementById("plotHeightInput").value) || 560;
@@ -280,37 +327,69 @@ export function bindUi() {
     setStatus("表示設定を更新しました。");
   });
 
+  document.getElementById("applyAxisRangeBtn")?.addEventListener("click", async () => {
+    const xRange = getRangeFromInputs("xRangeMinInput", "xRangeMaxInput");
+    const yRange = getRangeFromInputs("yRangeMinInput", "yRangeMaxInput");
+    const lockXRange = document.getElementById("lockXRangeInput")?.checked;
+    const lockYRange = document.getElementById("lockYRangeInput")?.checked;
+    const snapXRange = document.getElementById("snapXRangeInput")?.checked;
+
+    applyManualAxisRanges({ xRange, yRange, lockXRange, lockYRange, snapXRange });
+    await renderPlot();
+    setStatus("軸範囲を更新しました。");
+  });
+
+  document.getElementById("snapXAxisBtn")?.addEventListener("click", async () => {
+    await snapCurrentXAxisRange();
+    setStatus("現在の x 軸範囲を切りのいい値にスナップしました。");
+  });
+
+  document.getElementById("fixScaleBtn")?.addEventListener("click", async () => {
+    await fixCurrentScale();
+    renderAll();
+    setStatus("現在の表示範囲で軸スケールを固定しました。");
+  });
+
+  document.getElementById("resetZoomBtn")?.addEventListener("click", async () => {
+    await resetPlotZoom();
+    setStatus("ズームをリセットしました。");
+  });
+
   document.getElementById("detectPeaksBtn")?.addEventListener("click", async () => {
     const spectrum = getSelectedSpectrum();
     if (!spectrum) {
-      setStatus("先にスペクトルを選択してください。");
+      setStatus("ピーク検出するスペクトルを選択してください。");
       return;
     }
 
-    const minProminence = Number(document.getElementById("prominenceInput").value) || 0;
-    const minDistance = Number(document.getElementById("distanceInput").value) || 5;
-    spectrum.detectedPeaks = detectPeaks(spectrum.xProcessed, spectrum.yProcessed, { minProminence, minDistance });
+    const prominence = Number(document.getElementById("prominenceInput").value) || 0;
+    const minDistance = Number(document.getElementById("distanceInput").value) || 1;
+    spectrum.detectedPeaks = detectPeaks(spectrum.xProcessed, spectrum.yProcessed, { prominence, minDistance });
     renderPeakList();
-    setStatus(`${spectrum.detectedPeaks.length} peak(s) detected.`);
+    await renderPlot();
+    setStatus(`${spectrum.detectedPeaks.length} 個のピークを検出しました。`);
   });
 
   document.getElementById("resetNormalizationBtn")?.addEventListener("click", async () => {
     const spectrum = getSelectedSpectrum();
     if (!spectrum) return;
     resetProcessed(spectrum);
-    spectrum.detectedPeaks = [];
     renderPeakList();
     await renderPlot();
-    setStatus("選択スペクトルを元データに戻しました。");
+    setStatus("選択スペクトルの正規化をリセットしました。");
   });
 
-  document.getElementById("exportPngBtn")?.addEventListener("click", async () => {
-    await exportPlotPng();
-    setStatus("PNG を書き出しました。");
-  });
-
-  document.getElementById("saveProjectBtn")?.addEventListener("click", () => {
-    saveProjectJson();
-    setStatus("プロジェクト JSON を保存しました。");
+  window.addEventListener("resize", async () => {
+    const { xRange, yRange } = getCurrentPlotRanges();
+    if (xRange || yRange) {
+      applyManualAxisRanges({
+        xRange,
+        yRange,
+        lockXRange: document.getElementById("lockXRangeInput")?.checked,
+        lockYRange: document.getElementById("lockYRangeInput")?.checked,
+        snapXRange: document.getElementById("snapXRangeInput")?.checked,
+      });
+    }
+    await renderPlot();
   });
 }
