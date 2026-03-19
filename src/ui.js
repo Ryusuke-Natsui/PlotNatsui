@@ -1,6 +1,6 @@
 import { state, addSpectrum, removeSpectrum, updateSpectrum, selectSpectrum, getSelectedSpectrum, importProject } from "./state.js";
 import { parseSpectrumFile } from "./parser.js";
-import { renderPlot, exportPlotPng, resetPlotZoom, applyManualAxisRanges, snapCurrentXAxisRange, fixCurrentScale, getCurrentPlotRanges } from "./plot.js";
+import { renderPlot, exportPlotPng, resetPlotZoom, applyManualAxisRanges, snapCurrentXAxisRange, fixCurrentScale } from "./plot.js";
 import { detectPeaks } from "./peaks.js";
 import { normalizeByPeakIndex, resetProcessed } from "./process.js";
 import { saveProjectJson } from "./export.js";
@@ -364,7 +364,7 @@ export function bindUi() {
 
     const prominence = Number(document.getElementById("prominenceInput").value) || 0;
     const minDistance = Number(document.getElementById("distanceInput").value) || 1;
-    spectrum.detectedPeaks = detectPeaks(spectrum.xProcessed, spectrum.yProcessed, { prominence, minDistance });
+    spectrum.detectedPeaks = detectPeaks(spectrum.xProcessed, spectrum.yProcessed, { minProminence: prominence, minDistance });
     renderPeakList();
     await renderPlot();
     setStatus(`${spectrum.detectedPeaks.length} 個のピークを検出しました。`);
@@ -380,16 +380,6 @@ export function bindUi() {
   });
 
   window.addEventListener("resize", async () => {
-    const { xRange, yRange } = getCurrentPlotRanges();
-    if (xRange || yRange) {
-      applyManualAxisRanges({
-        xRange,
-        yRange,
-        lockXRange: document.getElementById("lockXRangeInput")?.checked,
-        lockYRange: document.getElementById("lockYRangeInput")?.checked,
-        snapXRange: document.getElementById("snapXRangeInput")?.checked,
-      });
-    }
     await renderPlot();
   });
 }
