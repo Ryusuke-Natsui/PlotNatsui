@@ -31,16 +31,24 @@ function defaultColor(index) {
   return colors[index % colors.length];
 }
 
-function createAxisConfig(title, colors) {
+function clampFontSize(value, fallback) {
+  const size = Number(value);
+  return Number.isFinite(size) ? Math.min(Math.max(size, 8), 96) : fallback;
+}
+
+function createAxisConfig(title, colors, typography = {}, titleStandoff = 18) {
+  const titleFontSize = clampFontSize(typography.titleFontSize, 30);
+  const tickFontSize = clampFontSize(typography.tickFontSize, 18);
+
   return {
     title: {
       text: title,
       font: {
-        size: 30,
+        size: titleFontSize,
         family: 'Arial, "Helvetica Neue", sans-serif',
         color: colors.text,
       },
-      standoff: 18,
+      standoff: titleStandoff,
     },
     showgrid: false,
     zeroline: false,
@@ -61,7 +69,7 @@ function createAxisConfig(title, colors) {
     },
     automargin: true,
     tickfont: {
-      size: 18,
+      size: tickFontSize,
       family: 'Arial, "Helvetica Neue", sans-serif',
       color: colors.text,
     },
@@ -70,6 +78,68 @@ function createAxisConfig(title, colors) {
 
 function isFiniteNumber(value) {
   return Number.isFinite(value);
+}
+
+function countDecimals(value) {
+  if (!isFiniteNumber(value)) return 0;
+  const asString = String(value).toLowerCase();
+  if (asString.includes("e-")) {
+    return Number(asString.split("e-")[1]) || 0;
+  }
+  const parts = asString.split(".");
+  return parts[1]?.length ?? 0;
+}
+
+function formatTickValue(value, decimals) {
+  if (!isFiniteNumber(value)) return "";
+  const abs = Math.abs(value);
+  if ((abs >= 1e5 || (abs > 0 && abs < 1e-3))) {
+    return value.toExponential(2);
+  }
+  const safeDecimals = Math.min(Math.max(decimals, 0), 6);
+  return Number(value.toFixed(safeDecimals)).toString();
+}
+
+function estimateTickLabelLength(axisSpec) {
+  if (!axisSpec?.range || !isFiniteNumber(axisSpec.dtick) || axisSpec.dtick <= 0) return 4;
+  const decimals = Math.max(countDecimals(axisSpec.tick0), countDecimals(axisSpec.dtick));
+  const [start, end] = axisSpec.range;
+  const step = axisSpec.dtick;
+  const span = end - start;
+  const tickCount = Math.min(Math.max(Math.round(span / step) + 1, 2), 50);
+  let maxLength = 0;
+
+  for (let index = 0; index < tickCount; index += 1) {
+    const value = start + (step * index);
+    maxLength = Math.max(maxLength, formatTickValue(value, decimals).length);
+  }
+
+  return Math.max(maxLength, formatTickValue(end, decimals).length, 4);
+}
+
+function buildAxisTypography(axisSpec, stateUi, axisKey) {
+  const titleFontSize = clampFontSize(stateUi.axisTitleFontSize, 30);
+  const tickFontSize = clampFontSize(stateUi.axisTickFontSize, 18);
+  const labelLength = estimateTickLabelLength(axisSpec);
+  const tickBand = Math.ceil(tickFontSize * 1.9);
+  const titleStandoff = axisKey === "y"
+    ? Math.max(22, Math.ceil((labelLength * tickFontSize * 0.58) + (tickFontSize * 0.8)))
+    : Math.max(18, Math.ceil(tickBand * 0.75));
+
+  return {
+    titleFontSize,
+    tickFontSize,
+    titleStandoff,
+    labelLength,
+    tickBand,
+  };
+}
+
+function createLayoutMargins(xTypography, yTypography) {
+  const left = Math.max(96, Math.ceil((yTypography.labelLength * yTypography.tickFontSize * 0.62) + yTypography.titleFontSize + yTypography.titleStandoff + 36));
+  const bottom = Math.max(90, Math.ceil(xTypography.tickBand + xTypography.titleFontSize + xTypography.titleStandoff + 34));
+
+  return { l: left, r: 28, t: 28, b: bottom };
 }
 
 function normalizeRange(range) {
@@ -354,6 +424,9 @@ export async function renderPlot() {
 
   const resolvedViewport = resolveViewport(traces);
 
+  const xTypography = buildAxisTypography(resolvedViewport.xAxis, state.ui, "x");
+  const yTypography = buildAxisTypography(resolvedViewport.yAxis, state.ui, "y");
+
   const layout = {
     paper_bgcolor: colors.paper,
     plot_bgcolor: colors.plot,
@@ -361,8 +434,8 @@ export async function renderPlot() {
       color: colors.text,
       family: 'Arial, "Helvetica Neue", sans-serif',
     },
-    xaxis: createAxisConfig(state.ui.xLabel, colors),
-    yaxis: createAxisConfig(state.ui.yLabel, colors),
+    xaxis: createAxisConfig(state.ui.xLabel, colors, xTypography, xTypography.titleStandoff),
+    yaxis: createAxisConfig(state.ui.yLabel, colors, yTypography, yTypography.titleStandoff),
     dragmode: "zoom",
     showlegend: true,
     legend: {
@@ -378,7 +451,7 @@ export async function renderPlot() {
         size: 13,
       },
     },
-    margin: { l: 96, r: 28, t: 28, b: 90 },
+    margin: createLayoutMargins(xTypography, yTypography),
     height: Number(state.ui.plotHeight) || 560,
     hoverlabel: {
       bgcolor: colors.paper,
