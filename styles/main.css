@@ -106,6 +106,84 @@ body.dark .plot-card {
   height: 560px;
 }
 
+.plot-stage {
+  position: relative;
+}
+
+.peak-menu {
+  position: absolute;
+  min-width: 220px;
+  max-width: min(280px, calc(100% - 24px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+  z-index: 5;
+}
+
+.peak-menu-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.peak-menu-meta {
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.peak-menu-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.peak-menu-actions button {
+  flex: 1 1 120px;
+}
+.plot-dropzone {
+  position: relative;
+  border-radius: 14px;
+}
+
+.plot-drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  border: 2px dashed transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.985);
+  transition: opacity 0.18s ease, transform 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.plot-drop-title {
+  font-weight: 700;
+}
+
+.plot-drop-subtitle {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.plot-dropzone.drag-active .plot-drop-overlay {
+  opacity: 1;
+  transform: scale(1);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+
+
 label {
   display: grid;
   gap: 6px;
@@ -179,15 +257,13 @@ button:hover,
   display: none;
 }
 
-.trace-list,
-.peak-list {
+.trace-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.trace-item,
-.peak-item {
+.trace-item {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px;
@@ -270,10 +346,6 @@ button:hover,
   font-size: 0.9rem;
 }
 
-.peak-item button {
-  width: 100%;
-  margin-top: 8px;
-}
 
 .checklist {
   padding-left: 18px;
@@ -337,4 +409,10 @@ button:disabled {
 
 .checkbox-row input {
   margin: 0;
+}
+
+
+#cosmicRaySelectionText {
+  margin: 4px 0 12px;
+  word-break: break-word;
 }

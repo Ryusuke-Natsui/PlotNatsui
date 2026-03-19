@@ -1,8 +1,9 @@
 import { state, addSpectrum, removeSpectrum, updateSpectrum, selectSpectrum, getSelectedSpectrum, importProject } from "./state.js";
 import { parseSpectrumFile } from "./parser.js";
 import { renderPlot, exportPlotPng, resetPlotZoom, applyManualAxisRanges, snapCurrentXAxisRange, fixCurrentScale } from "./plot.js";
+import { renderPlot, exportPlotPng, resetPlotZoom, applyManualAxisRanges, snapCurrentXAxisRange, fixCurrentScale, getCurrentPlotRanges, setPlotPointSelectionHandler } from "./plot.js";
 import { detectPeaks } from "./peaks.js";
-import { normalizeByPeakIndex, resetProcessed } from "./process.js";
+import { normalizeByPeakIndex, resetProcessed, hasMeasurementTimeSpectra } from "./process.js";
 import { saveProjectJson } from "./export.js";
 
 const DEFAULT_TRACE_COLORS = [
@@ -16,6 +17,29 @@ const TRACE_LINE_STYLE_OPTIONS = [
   { value: "dot", label: "Dot" },
   { value: "dashdot", label: "Dash dot" },
 ];
+const peakMenuState = {
+  open: false,
+  spectrumId: null,
+  peakIndex: null,
+  peakNumber: null,
+  x: null,
+  y: null,
+  prominence: null,
+  clientX: 0,
+  clientY: 0,
+const X_LABEL_PRESETS = {
+  raman: "Raman shift / cm⁻¹",
+  pl: "Wavelength / nm",
+  energy: "Photon energy / eV",
+  custom: null,
+};
+
+const Y_LABEL_PRESETS = {
+  "a.u.": "Intensity (a.u.)",
+  counts: "Intensity (counts)",
+  cps: "Intensity (cps)",
+  custom: null,
+};
 
 function setStatus(message) {
   const el = document.getElementById("statusText");
@@ -29,6 +53,43 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function resetPeakMenuState() {
+  peakMenuState.open = false;
+  peakMenuState.spectrumId = null;
+  peakMenuState.peakIndex = null;
+  peakMenuState.peakNumber = null;
+  peakMenuState.x = null;
+  peakMenuState.y = null;
+  peakMenuState.prominence = null;
+}
+
+function closePeakMenu() {
+  resetPeakMenuState();
+}
+
+function openPeakMenu(detail = {}) {
+  peakMenuState.open = true;
+  peakMenuState.spectrumId = detail.spectrumId ?? null;
+  peakMenuState.peakIndex = detail.peakIndex ?? null;
+  peakMenuState.peakNumber = detail.peakNumber ?? null;
+  peakMenuState.x = detail.x ?? null;
+  peakMenuState.y = detail.y ?? null;
+  peakMenuState.prominence = detail.prominence ?? null;
+  peakMenuState.clientX = detail.clientX ?? 0;
+  peakMenuState.clientY = detail.clientY ?? 0;
+function resolveLabelFromPreset(presetMap, presetKey, fallback) {
+  return presetMap[presetKey] ?? fallback;
+}
+
+function syncAutoYLabel() {
+  if (hasMeasurementTimeSpectra(state.spectra)) {
+    state.ui.yLabelPreset = "cps";
+    state.ui.yLabel = Y_LABEL_PRESETS.cps;
+  } else if (state.ui.yLabelPreset !== "custom") {
+    state.ui.yLabel = resolveLabelFromPreset(Y_LABEL_PRESETS, state.ui.yLabelPreset, state.ui.yLabel);
+  }
 }
 
 function renderTraceList() {
@@ -79,6 +140,31 @@ function renderTraceList() {
             <input type="number" class="trace-offset" step="0.1" value="${Number(s.offset) || 0}" />
           </label>
         </div>
+  container.innerHTML = state.spectra.map((s) => `
+    <div class="trace-item" data-trace-id="${s.id}">
+      <div class="trace-head">
+        <button class="trace-select-btn">${state.selectedSpectrumId === s.id ? "Selected" : "Select"}</button>
+        <span class="badge">${s.metadata?.pointCount ?? 0} pts</span>
+      </div>
+      <div class="trace-name">${escapeHtml(s.name)}</div>
+      <div class="trace-row">
+        <label><input type="checkbox" class="trace-visible" ${s.visible ? "checked" : ""} /> show</label>
+        <input type="text" class="trace-rename" value="${escapeHtml(s.name)}" />
+        <button class="trace-remove-btn">Remove</button>
+      </div>
+      <div class="trace-controls">
+        <label>
+          Line width
+          <input type="number" class="trace-width" min="1" step="0.5" value="${Number(s.lineWidth) || 2}" />
+        </label>
+        <label>
+          Offset
+          <input type="number" class="trace-offset" step="0.1" value="${Number(s.offset) || 0}" />
+        </label>
+        <label>
+          Measurement time (s)
+          <input type="number" class="trace-measurement-time" min="0" step="0.001" placeholder="counts only" value="${s.measurementTimeSeconds ?? ""}" />
+        </label>
       </div>
     `;
   }).join("");
@@ -88,6 +174,7 @@ function renderTraceList() {
 
     item.querySelector(".trace-select-btn")?.addEventListener("click", async () => {
       selectSpectrum(id);
+      closePeakMenu();
       renderAll();
       await renderPlot();
       setStatus("スペクトルを選択しました。");
@@ -145,8 +232,24 @@ function renderTraceList() {
       await renderPlot();
     });
 
+    item.querySelector(".trace-measurement-time")?.addEventListener("change", async (event) => {
+      const rawValue = event.target.value.trim();
+      const measurementTimeSeconds = rawValue === "" ? null : Number(rawValue);
+      updateSpectrum(id, {
+        measurementTimeSeconds: Number.isFinite(measurementTimeSeconds) && measurementTimeSeconds > 0 ? measurementTimeSeconds : null,
+      });
+      syncAutoYLabel();
+      renderAll();
+      await renderPlot();
+      setStatus(hasMeasurementTimeSpectra(state.spectra)
+        ? "測定時間を反映し、Intensity (cps) に切り替えました。"
+        : "測定時間をクリアしました。");
+    });
+
     item.querySelector(".trace-remove-btn")?.addEventListener("click", async () => {
       removeSpectrum(id);
+      closePeakMenu();
+      syncAutoYLabel();
       renderAll();
       await renderPlot();
       setStatus("スペクトルを削除しました。");
@@ -154,47 +257,79 @@ function renderTraceList() {
   });
 }
 
-function renderPeakList() {
-  const container = document.getElementById("peakList");
-  if (!container) return;
+function formatPeakMenuMeta() {
+  if (!peakMenuState.open) {
+    return "ピークをクリックするとここに情報を表示します。";
+  }
 
+  return [
+    `#${peakMenuState.peakNumber}`,
+    `x = ${Number(peakMenuState.x).toFixed(4)}`,
+    `y = ${Number(peakMenuState.y).toFixed(4)}`,
+    `prominence = ${Number(peakMenuState.prominence).toFixed(4)}`,
+  ].join("<br>");
+}
+
+function renderPeakMenu() {
+  const menu = document.getElementById("peakMenu");
+  const meta = document.getElementById("peakMenuMeta");
+  const normalizeBtn = document.getElementById("normalizePeakBtn");
+  if (!menu || !meta || !normalizeBtn) return;
+
+  meta.innerHTML = formatPeakMenuMeta();
+  normalizeBtn.disabled = !peakMenuState.open;
+
+  if (!peakMenuState.open) {
+    menu.hidden = true;
+    menu.style.left = "";
+    menu.style.top = "";
+    return;
+  }
+
+  menu.hidden = false;
+  const stage = menu.parentElement;
+  const stageRect = stage?.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth || 240;
+  const menuHeight = menu.offsetHeight || 140;
+  const safeLeft = Math.max(12, Math.min((peakMenuState.clientX - (stageRect?.left ?? 0)) + 12, (stageRect?.width ?? 0) - menuWidth - 12));
+  const safeTop = Math.max(12, Math.min((peakMenuState.clientY - (stageRect?.top ?? 0)) + 12, (stageRect?.height ?? 0) - menuHeight - 12));
+
+  menu.style.left = `${safeLeft}px`;
+  menu.style.top = `${safeTop}px`;
+}
+
+function renderCosmicRayControls() {
   const spectrum = getSelectedSpectrum();
-  const peaks = spectrum?.detectedPeaks ?? [];
+  const enabledInput = document.getElementById("cosmicRayModeInput");
+  const halfWidthInput = document.getElementById("cosmicRayHalfWidthInput");
+  const selectionText = document.getElementById("cosmicRaySelectionText");
+  const removeBtn = document.getElementById("removeCosmicRayBtn");
+  const undoBtn = document.getElementById("undoCosmicRayBtn");
+  const clearBtn = document.getElementById("clearCosmicRaySelectionBtn");
+
+  if (enabledInput) enabledInput.checked = Boolean(state.ui.cosmicRayRemoval?.enabled);
+  if (halfWidthInput) halfWidthInput.value = String(state.ui.cosmicRayRemoval?.halfWidth ?? 1);
 
   if (!spectrum) {
-    container.innerHTML = '<div class="empty">スペクトルを選択してください。</div>';
+    if (selectionText) selectionText.textContent = "スペクトルを選択してください。";
+    if (removeBtn) removeBtn.disabled = true;
+    if (undoBtn) undoBtn.disabled = true;
+    if (clearBtn) clearBtn.disabled = true;
     return;
   }
 
-  if (!peaks.length) {
-    container.innerHTML = '<div class="empty">ピークはまだ検出されていません。</div>';
-    return;
+  const index = spectrum.selectedRemovalPointIndex;
+  if (Number.isInteger(index)) {
+    const x = spectrum.xProcessed[index];
+    const y = spectrum.yProcessed[index];
+    if (selectionText) selectionText.textContent = `選択中: index ${index}, x = ${Number(x).toFixed(4)}, y = ${Number(y).toFixed(4)}`;
+  } else if (selectionText) {
+    selectionText.textContent = "まだ点は選択されていません。";
   }
 
-  container.innerHTML = peaks.map((p, idx) => `
-    <div class="peak-item">
-      <div><strong>#${idx + 1}</strong></div>
-      <div>x = ${Number(p.x).toFixed(4)}</div>
-      <div>y = ${Number(p.y).toFixed(4)}</div>
-      <div>prominence = ${Number(p.prominence).toFixed(4)}</div>
-      <button data-peak-index="${p.index}">Normalize to this peak = 1</button>
-    </div>
-  `).join("");
-
-  container.querySelectorAll("button[data-peak-index]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const peakIndex = Number(btn.dataset.peakIndex);
-      const target = getSelectedSpectrum();
-      if (!target) return;
-      try {
-        normalizeByPeakIndex(target, peakIndex);
-        await renderPlot();
-        setStatus("選択ピークを 1 に正規化しました。");
-      } catch (error) {
-        setStatus(error.message);
-      }
-    });
-  });
+  if (removeBtn) removeBtn.disabled = !Number.isInteger(index);
+  if (undoBtn) undoBtn.disabled = !(spectrum.cosmicRayHistory?.length);
+  if (clearBtn) clearBtn.disabled = !Number.isInteger(index);
 }
 
 function normalizeHexColor(value) {
@@ -220,15 +355,33 @@ function getRangeFromInputs(minId, maxId) {
   return min < max ? [min, max] : [max, min];
 }
 
+function renderLabelControls() {
+  const xPresetInput = document.getElementById("xLabelPresetInput");
+  const yPresetInput = document.getElementById("yLabelPresetInput");
+  const xLabelInput = document.getElementById("xLabelInput");
+  const yLabelInput = document.getElementById("yLabelInput");
+
+  if (xPresetInput) xPresetInput.value = state.ui.xLabelPreset;
+  if (yPresetInput) yPresetInput.value = hasMeasurementTimeSpectra(state.spectra) ? "cps" : state.ui.yLabelPreset;
+  if (xLabelInput) xLabelInput.value = state.ui.xLabel;
+  if (yLabelInput) yLabelInput.value = state.ui.yLabel;
+  if (xLabelInput) xLabelInput.disabled = state.ui.xLabelPreset !== "custom";
+  if (yLabelInput) yLabelInput.disabled = hasMeasurementTimeSpectra(state.spectra) || state.ui.yLabelPreset !== "custom";
+}
+
 export function renderAll() {
+  syncAutoYLabel();
   document.body.classList.toggle("dark", state.ui.theme === "dark");
-  document.getElementById("xLabelInput").value = state.ui.xLabel;
-  document.getElementById("yLabelInput").value = state.ui.yLabel;
+  renderLabelControls();
   document.getElementById("themeSelect").value = state.ui.theme;
   document.getElementById("offsetStepInput").value = state.ui.offsetStep;
   document.getElementById("plotHeightInput").value = state.ui.plotHeight;
+  document.getElementById("axisTitleFontSizeInput").value = state.ui.axisTitleFontSize;
+  document.getElementById("axisTickFontSizeInput").value = state.ui.axisTickFontSize;
   renderTraceList();
+  renderPeakMenu();
   renderPeakList();
+  renderCosmicRayControls();
 }
 
 async function handleSpectrumFiles(fileList) {
@@ -241,6 +394,7 @@ async function handleSpectrumFiles(fileList) {
       setStatus(error.message);
     }
   }
+  syncAutoYLabel();
   renderAll();
   await renderPlot();
   setStatus(`${files.length} file(s) loaded.`);
@@ -250,46 +404,124 @@ async function handleProjectFile(file) {
   const text = await file.text();
   const project = JSON.parse(text);
   importProject(project);
+  closePeakMenu();
   renderAll();
   await renderPlot();
   setStatus("プロジェクトを読み込みました。");
 }
 
-function bindSpectrumDropzone() {
-  const dropzone = document.getElementById("fileDropzone");
-  const fileInput = document.getElementById("fileInput");
-  if (!dropzone || !fileInput) return;
+function bindFileDropTarget(dropzone, onDropFiles) {
+  if (!dropzone) return;
 
+  let dragDepth = 0;
+
+  const isFileDrag = (event) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
   const setDragActive = (active) => {
     dropzone.classList.toggle("drag-active", active);
   };
 
-  ["dragenter", "dragover"].forEach((type) => {
-    dropzone.addEventListener(type, (event) => {
-      event.preventDefault();
-      setDragActive(true);
-    });
+  dropzone.addEventListener("dragenter", (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepth += 1;
+    setDragActive(true);
   });
 
-  ["dragleave", "dragend"].forEach((type) => {
-    dropzone.addEventListener(type, (event) => {
-      event.preventDefault();
-      if (!dropzone.contains(event.relatedTarget)) {
-        setDragActive(false);
-      }
-    });
+  dropzone.addEventListener("dragover", (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    setDragActive(true);
+  });
+
+  dropzone.addEventListener("dragleave", (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) setDragActive(false);
+  });
+
+  dropzone.addEventListener("dragend", () => {
+    dragDepth = 0;
+    setDragActive(false);
   });
 
   dropzone.addEventListener("drop", async (event) => {
+    if (!isFileDrag(event)) return;
     event.preventDefault();
+    dragDepth = 0;
     setDragActive(false);
     if (event.dataTransfer?.files?.length) {
-      await handleSpectrumFiles(event.dataTransfer.files);
-      fileInput.value = "";
+      await onDropFiles(event.dataTransfer.files);
     }
   });
 
   fileInput.addEventListener("change", async (event) => {
+function bindPeakMenu() {
+  const normalizeBtn = document.getElementById("normalizePeakBtn");
+  const closeBtn = document.getElementById("closePeakMenuBtn");
+  const menu = document.getElementById("peakMenu");
+  const plot = document.getElementById("plot");
+
+  normalizeBtn?.addEventListener("click", async () => {
+    const target = getSelectedSpectrum();
+    const peakIndex = peakMenuState.peakIndex;
+    if (!target || !Number.isInteger(peakIndex)) return;
+
+    try {
+      normalizeByPeakIndex(target, peakIndex);
+      closePeakMenu();
+      renderAll();
+      await renderPlot();
+      setStatus("選択ピークを 1 に正規化しました。");
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  closeBtn?.addEventListener("click", () => {
+    closePeakMenu();
+    renderPeakMenu();
+  });
+
+  plot?.addEventListener("peak-marker-click", (event) => {
+    openPeakMenu(event.detail ?? {});
+    renderPeakMenu();
+  });
+
+  plot?.addEventListener("peak-marker-clear", () => {
+    closePeakMenu();
+    renderPeakMenu();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!peakMenuState.open) return;
+    if (menu?.contains(event.target) || plot?.contains(event.target)) return;
+    closePeakMenu();
+    renderPeakMenu();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !peakMenuState.open) return;
+    closePeakMenu();
+    renderPeakMenu();
+function bindSpectrumDropzones() {
+  const fileInput = document.getElementById("fileInput");
+  const dropzones = [document.getElementById("fileDropzone"), document.getElementById("plotDropzone")].filter(Boolean);
+  if (!fileInput || !dropzones.length) return;
+
+  dropzones.forEach((dropzone) => {
+    bindFileDropTarget(dropzone, async (files) => {
+      await handleSpectrumFiles(files);
+      fileInput.value = "";
+    });
+  });
+}
+
+export function bindUi() {
+  setPlotPointSelectionHandler(handlePlotPointSelection);
+
+  document.getElementById("fileInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.length) {
       await handleSpectrumFiles(event.target.files);
       event.target.value = "";
@@ -299,6 +531,8 @@ function bindSpectrumDropzone() {
 
 export function bindUi() {
   bindSpectrumDropzone();
+  bindPeakMenu();
+  bindSpectrumDropzones();
 
   document.getElementById("projectInput")?.addEventListener("change", async (event) => {
     const [file] = event.target.files ?? [];
@@ -325,6 +559,31 @@ export function bindUi() {
     renderAll();
     await renderPlot();
     setStatus("表示設定を更新しました。");
+  document.getElementById("xLabelPresetInput")?.addEventListener("change", (event) => {
+    const preset = event.target.value;
+    state.ui.xLabelPreset = preset;
+    if (preset !== "custom") {
+      state.ui.xLabel = resolveLabelFromPreset(X_LABEL_PRESETS, preset, state.ui.xLabel);
+    }
+    renderLabelControls();
+  });
+
+  document.getElementById("yLabelPresetInput")?.addEventListener("change", (event) => {
+    if (hasMeasurementTimeSpectra(state.spectra)) {
+      renderLabelControls();
+      return;
+    }
+    const preset = event.target.value;
+    state.ui.yLabelPreset = preset;
+    if (preset !== "custom") {
+      state.ui.yLabel = resolveLabelFromPreset(Y_LABEL_PRESETS, preset, state.ui.yLabel);
+    }
+    renderLabelControls();
+  });
+
+  document.getElementById("resetZoomBtn")?.addEventListener("click", async () => {
+    await resetPlotZoom();
+    setStatus("ズームをリセットしました。");
   });
 
   document.getElementById("applyAxisRangeBtn")?.addEventListener("click", async () => {
@@ -353,6 +612,26 @@ export function bindUi() {
   document.getElementById("resetZoomBtn")?.addEventListener("click", async () => {
     await resetPlotZoom();
     setStatus("ズームをリセットしました。");
+  document.getElementById("applyViewBtn")?.addEventListener("click", async () => {
+    const xPreset = document.getElementById("xLabelPresetInput").value;
+    const yPreset = document.getElementById("yLabelPresetInput").value;
+    state.ui.xLabelPreset = xPreset;
+    state.ui.yLabelPreset = hasMeasurementTimeSpectra(state.spectra) ? "cps" : yPreset;
+    state.ui.xLabel = xPreset === "custom"
+      ? (document.getElementById("xLabelInput").value.trim() || state.ui.xLabel)
+      : resolveLabelFromPreset(X_LABEL_PRESETS, xPreset, state.ui.xLabel);
+    state.ui.yLabel = state.ui.yLabelPreset === "custom"
+      ? (document.getElementById("yLabelInput").value.trim() || state.ui.yLabel)
+      : resolveLabelFromPreset(Y_LABEL_PRESETS, state.ui.yLabelPreset, state.ui.yLabel);
+    syncAutoYLabel();
+    state.ui.theme = document.getElementById("themeSelect").value;
+    state.ui.offsetStep = Number(document.getElementById("offsetStepInput").value) || 0;
+    state.ui.plotHeight = Number(document.getElementById("plotHeightInput").value) || 560;
+    state.ui.axisTitleFontSize = Number(document.getElementById("axisTitleFontSizeInput").value) || 30;
+    state.ui.axisTickFontSize = Number(document.getElementById("axisTickFontSizeInput").value) || 18;
+    renderAll();
+    await renderPlot();
+    setStatus("表示設定を更新しました。");
   });
 
   document.getElementById("detectPeaksBtn")?.addEventListener("click", async () => {
@@ -368,6 +647,13 @@ export function bindUi() {
     renderPeakList();
     await renderPlot();
     setStatus(`${spectrum.detectedPeaks.length} 個のピークを検出しました。`);
+    const minProminence = Number(document.getElementById("prominenceInput").value) || 0;
+    const minDistance = Number(document.getElementById("distanceInput").value) || 5;
+    spectrum.detectedPeaks = detectPeaks(spectrum.xProcessed, spectrum.yProcessed, { minProminence, minDistance });
+    closePeakMenu();
+    renderPeakMenu();
+    await renderPlot();
+    setStatus(`${spectrum.detectedPeaks.length} peak(s) detected. マーカーをクリックすると操作できます。`);
   });
 
   document.getElementById("resetNormalizationBtn")?.addEventListener("click", async () => {
@@ -375,11 +661,70 @@ export function bindUi() {
     if (!spectrum) return;
     resetProcessed(spectrum);
     renderPeakList();
+    spectrum.detectedPeaks = [];
+    closePeakMenu();
+    renderAll();
     await renderPlot();
     setStatus("選択スペクトルの正規化をリセットしました。");
   });
 
   window.addEventListener("resize", async () => {
     await renderPlot();
+  document.getElementById("cosmicRayModeInput")?.addEventListener("change", (event) => {
+    state.ui.cosmicRayRemoval.enabled = event.target.checked;
+    renderCosmicRayControls();
+    setStatus(event.target.checked
+      ? "点選択モードを有効にしました。グラフ上の対象点をクリックしてください。"
+      : "点選択モードを無効にしました。");
+  });
+
+  document.getElementById("cosmicRayHalfWidthInput")?.addEventListener("change", (event) => {
+    state.ui.cosmicRayRemoval.halfWidth = Math.max(0, Math.floor(Number(event.target.value) || 0));
+    renderCosmicRayControls();
+  });
+
+  document.getElementById("removeCosmicRayBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    try {
+      const result = removeSelectedSpike(spectrum, state.ui.cosmicRayRemoval.halfWidth);
+      renderAll();
+      await renderPlot();
+      setStatus(`宇宙線由来の鋭い線を補間除去しました (index ${result.start} - ${result.end})。`);
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  document.getElementById("undoCosmicRayBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    try {
+      const result = undoLastSpikeRemoval(spectrum);
+      renderAll();
+      await renderPlot();
+      setStatus(`直前の宇宙線除去を元に戻しました (index ${result.start} - ${result.end})。`);
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  document.getElementById("clearCosmicRaySelectionBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    clearRemovalPoint(spectrum);
+    renderCosmicRayControls();
+    await renderPlot();
+    setStatus("除去対象点の選択をクリアしました。");
+  });
+
+  document.getElementById("exportPngBtn")?.addEventListener("click", async () => {
+    await exportPlotPng();
+    setStatus("PNG を書き出しました。");
+  });
+
+  document.getElementById("saveProjectBtn")?.addEventListener("click", () => {
+    saveProjectJson();
+    setStatus("プロジェクト JSON を保存しました。");
   });
 }
