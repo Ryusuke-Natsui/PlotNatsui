@@ -304,3 +304,9 @@ button:disabled {
 .checkbox-row input {
   margin: 0;
 }
+
+
+#cosmicRaySelectionText {
+  margin: 4px 0 12px;
+  word-break: break-word;
+}
