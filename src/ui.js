@@ -2,8 +2,22 @@ import { state, addSpectrum, removeSpectrum, updateSpectrum, selectSpectrum, get
 import { parseSpectrumFile } from "./parser.js";
 import { renderPlot, exportPlotPng, resetPlotZoom, applyManualAxisRanges, snapCurrentXAxisRange, fixCurrentScale, getCurrentPlotRanges } from "./plot.js";
 import { detectPeaks } from "./peaks.js";
-import { normalizeByPeakIndex, resetProcessed } from "./process.js";
+import { normalizeByPeakIndex, resetProcessed, hasMeasurementTimeSpectra } from "./process.js";
 import { saveProjectJson } from "./export.js";
+
+const X_LABEL_PRESETS = {
+  raman: "Raman shift / cm⁻¹",
+  pl: "Wavelength / nm",
+  energy: "Photon energy / eV",
+  custom: null,
+};
+
+const Y_LABEL_PRESETS = {
+  "a.u.": "Intensity (a.u.)",
+  counts: "Intensity (counts)",
+  cps: "Intensity (cps)",
+  custom: null,
+};
 
 function setStatus(message) {
   const el = document.getElementById("statusText");
@@ -17,6 +31,19 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function resolveLabelFromPreset(presetMap, presetKey, fallback) {
+  return presetMap[presetKey] ?? fallback;
+}
+
+function syncAutoYLabel() {
+  if (hasMeasurementTimeSpectra(state.spectra)) {
+    state.ui.yLabelPreset = "cps";
+    state.ui.yLabel = Y_LABEL_PRESETS.cps;
+  } else if (state.ui.yLabelPreset !== "custom") {
+    state.ui.yLabel = resolveLabelFromPreset(Y_LABEL_PRESETS, state.ui.yLabelPreset, state.ui.yLabel);
+  }
 }
 
 function renderTraceList() {
@@ -48,6 +75,10 @@ function renderTraceList() {
         <label>
           Offset
           <input type="number" class="trace-offset" step="0.1" value="${Number(s.offset) || 0}" />
+        </label>
+        <label>
+          Measurement time (s)
+          <input type="number" class="trace-measurement-time" min="0" step="0.001" placeholder="counts only" value="${s.measurementTimeSeconds ?? ""}" />
         </label>
       </div>
     </div>
@@ -84,8 +115,23 @@ function renderTraceList() {
       await renderPlot();
     });
 
+    item.querySelector(".trace-measurement-time")?.addEventListener("change", async (event) => {
+      const rawValue = event.target.value.trim();
+      const measurementTimeSeconds = rawValue === "" ? null : Number(rawValue);
+      updateSpectrum(id, {
+        measurementTimeSeconds: Number.isFinite(measurementTimeSeconds) && measurementTimeSeconds > 0 ? measurementTimeSeconds : null,
+      });
+      syncAutoYLabel();
+      renderAll();
+      await renderPlot();
+      setStatus(hasMeasurementTimeSpectra(state.spectra)
+        ? "測定時間を反映し、Intensity (cps) に切り替えました。"
+        : "測定時間をクリアしました。");
+    });
+
     item.querySelector(".trace-remove-btn")?.addEventListener("click", async () => {
       removeSpectrum(id);
+      syncAutoYLabel();
       renderAll();
       await renderPlot();
       setStatus("スペクトルを削除しました。");
@@ -152,10 +198,24 @@ function getRangeFromInputs(minId, maxId) {
   return min < max ? [min, max] : [max, min];
 }
 
+function renderLabelControls() {
+  const xPresetInput = document.getElementById("xLabelPresetInput");
+  const yPresetInput = document.getElementById("yLabelPresetInput");
+  const xLabelInput = document.getElementById("xLabelInput");
+  const yLabelInput = document.getElementById("yLabelInput");
+
+  if (xPresetInput) xPresetInput.value = state.ui.xLabelPreset;
+  if (yPresetInput) yPresetInput.value = hasMeasurementTimeSpectra(state.spectra) ? "cps" : state.ui.yLabelPreset;
+  if (xLabelInput) xLabelInput.value = state.ui.xLabel;
+  if (yLabelInput) yLabelInput.value = state.ui.yLabel;
+  if (xLabelInput) xLabelInput.disabled = state.ui.xLabelPreset !== "custom";
+  if (yLabelInput) yLabelInput.disabled = hasMeasurementTimeSpectra(state.spectra) || state.ui.yLabelPreset !== "custom";
+}
+
 export function renderAll() {
+  syncAutoYLabel();
   document.body.classList.toggle("dark", state.ui.theme === "dark");
-  document.getElementById("xLabelInput").value = state.ui.xLabel;
-  document.getElementById("yLabelInput").value = state.ui.yLabel;
+  renderLabelControls();
   document.getElementById("themeSelect").value = state.ui.theme;
   document.getElementById("offsetStepInput").value = state.ui.offsetStep;
   document.getElementById("plotHeightInput").value = state.ui.plotHeight;
@@ -173,6 +233,7 @@ async function handleSpectrumFiles(fileList) {
       setStatus(error.message);
     }
   }
+  syncAutoYLabel();
   renderAll();
   await renderPlot();
   setStatus(`${files.length} file(s) loaded.`);
@@ -239,6 +300,28 @@ export function bindUi() {
     }
   });
 
+  document.getElementById("xLabelPresetInput")?.addEventListener("change", (event) => {
+    const preset = event.target.value;
+    state.ui.xLabelPreset = preset;
+    if (preset !== "custom") {
+      state.ui.xLabel = resolveLabelFromPreset(X_LABEL_PRESETS, preset, state.ui.xLabel);
+    }
+    renderLabelControls();
+  });
+
+  document.getElementById("yLabelPresetInput")?.addEventListener("change", (event) => {
+    if (hasMeasurementTimeSpectra(state.spectra)) {
+      renderLabelControls();
+      return;
+    }
+    const preset = event.target.value;
+    state.ui.yLabelPreset = preset;
+    if (preset !== "custom") {
+      state.ui.yLabel = resolveLabelFromPreset(Y_LABEL_PRESETS, preset, state.ui.yLabel);
+    }
+    renderLabelControls();
+  });
+
   document.getElementById("resetZoomBtn")?.addEventListener("click", async () => {
     await resetPlotZoom();
     setStatus("ズームをリセットしました。");
@@ -270,8 +353,17 @@ export function bindUi() {
   });
 
   document.getElementById("applyViewBtn")?.addEventListener("click", async () => {
-    state.ui.xLabel = document.getElementById("xLabelInput").value.trim() || state.ui.xLabel;
-    state.ui.yLabel = document.getElementById("yLabelInput").value.trim() || state.ui.yLabel;
+    const xPreset = document.getElementById("xLabelPresetInput").value;
+    const yPreset = document.getElementById("yLabelPresetInput").value;
+    state.ui.xLabelPreset = xPreset;
+    state.ui.yLabelPreset = hasMeasurementTimeSpectra(state.spectra) ? "cps" : yPreset;
+    state.ui.xLabel = xPreset === "custom"
+      ? (document.getElementById("xLabelInput").value.trim() || state.ui.xLabel)
+      : resolveLabelFromPreset(X_LABEL_PRESETS, xPreset, state.ui.xLabel);
+    state.ui.yLabel = state.ui.yLabelPreset === "custom"
+      ? (document.getElementById("yLabelInput").value.trim() || state.ui.yLabel)
+      : resolveLabelFromPreset(Y_LABEL_PRESETS, state.ui.yLabelPreset, state.ui.yLabel);
+    syncAutoYLabel();
     state.ui.theme = document.getElementById("themeSelect").value;
     state.ui.offsetStep = Number(document.getElementById("offsetStepInput").value) || 0;
     state.ui.plotHeight = Number(document.getElementById("plotHeightInput").value) || 560;
