@@ -1,7 +1,8 @@
-import { state } from "./state.js";
+import { state, getSelectedSpectrum } from "./state.js";
 import { applyOffsets } from "./process.js";
 
 let isApplyingViewport = false;
+let pointSelectionHandler = null;
 
 function getThemeColors(theme) {
   return theme === "dark"
@@ -341,6 +342,10 @@ function storeViewportFromRelayout(eventData) {
   return true;
 }
 
+export function setPlotPointSelectionHandler(handler) {
+  pointSelectionHandler = typeof handler === "function" ? handler : null;
+}
+
 function bindPlotInteractions(plotEl) {
   if (plotEl.dataset.viewportBound === "true") return;
 
@@ -349,6 +354,11 @@ function bindPlotInteractions(plotEl) {
     const changed = storeViewportFromRelayout(eventData);
     if (!changed) return;
     await renderPlot();
+  });
+
+  plotEl.on("plotly_click", async (eventData) => {
+    if (!pointSelectionHandler) return;
+    await pointSelectionHandler(eventData);
   });
 
   plotEl.dataset.viewportBound = "true";
@@ -409,18 +419,56 @@ export async function renderPlot() {
     state.ui.offsetStep
   );
 
-  const traces = prepared.map((s, index) => ({
-    x: s.xPlot,
-    y: s.yPlot,
-    type: "scatter",
-    mode: "lines",
-    name: s.name,
-    line: {
-      color: s.color || defaultColor(index),
-      width: Number(s.lineWidth) || 2,
-    },
-    hovertemplate: "%{x}<br>%{y}<extra>%{fullData.name}</extra>",
-  }));
+  const traces = prepared.flatMap((s, index) => {
+    const lineTrace = {
+      x: s.xPlot,
+      y: s.yPlot,
+      type: "scatter",
+      mode: "lines",
+      name: s.name,
+      meta: {
+        spectrumId: s.id,
+        traceRole: "spectrum",
+      },
+      line: {
+        color: s.color || defaultColor(index),
+        width: Number(s.lineWidth) || 2,
+      },
+      hovertemplate: "%{x}<br>%{y}<extra>%{fullData.name}</extra>",
+    };
+
+    const selectedSpectrum = getSelectedSpectrum();
+    const selectedIndex = selectedSpectrum?.id === s.id ? selectedSpectrum.selectedRemovalPointIndex : null;
+    if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= s.xPlot.length) {
+      return [lineTrace];
+    }
+
+    return [
+      lineTrace,
+      {
+        x: [s.xPlot[selectedIndex]],
+        y: [s.yPlot[selectedIndex]],
+        type: "scatter",
+        mode: "markers",
+        name: `${s.name} selected point`,
+        showlegend: false,
+        hoverinfo: "skip",
+        meta: {
+          spectrumId: s.id,
+          traceRole: "selected-removal-point",
+        },
+        marker: {
+          size: 12,
+          color: "#ef4444",
+          line: {
+            color: "#ffffff",
+            width: 2,
+          },
+          symbol: "x",
+        },
+      },
+    ];
+  });
 
   const resolvedViewport = resolveViewport(traces);
 
