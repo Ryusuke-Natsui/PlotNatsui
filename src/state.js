@@ -1,3 +1,16 @@
+function normalizeSpectrumState(spectrum) {
+  return {
+    ...spectrum,
+    xProcessed: Array.isArray(spectrum.xProcessed) ? spectrum.xProcessed : [...(spectrum.xRaw ?? [])],
+    yProcessed: Array.isArray(spectrum.yProcessed) ? spectrum.yProcessed : [...(spectrum.yRaw ?? [])],
+    detectedPeaks: Array.isArray(spectrum.detectedPeaks) ? spectrum.detectedPeaks : [],
+    selectedRemovalPointIndex: Number.isInteger(spectrum.selectedRemovalPointIndex)
+      ? spectrum.selectedRemovalPointIndex
+      : null,
+    cosmicRayHistory: Array.isArray(spectrum.cosmicRayHistory) ? spectrum.cosmicRayHistory : [],
+  };
+}
+
 export const state = {
   spectra: [],
   selectedSpectrumId: null,
@@ -15,6 +28,10 @@ export const state = {
       lockYRange: false,
       snapXRange: true,
     },
+    cosmicRayRemoval: {
+      enabled: false,
+      halfWidth: 1,
+    },
   },
 };
 
@@ -27,7 +44,7 @@ export function getSelectedSpectrum() {
 }
 
 export function addSpectrum(spectrum) {
-  state.spectra.push(spectrum);
+  state.spectra.push(normalizeSpectrumState(spectrum));
   if (!state.selectedSpectrumId) {
     state.selectedSpectrumId = spectrum.id;
   }
@@ -55,7 +72,7 @@ export function exportProject() {
 }
 
 export function importProject(project) {
-  state.spectra = project.spectra ?? [];
+  state.spectra = (project.spectra ?? []).map(normalizeSpectrumState);
   state.selectedSpectrumId = project.selectedSpectrumId ?? state.spectra[0]?.id ?? null;
   state.ui = {
     ...state.ui,
@@ -63,6 +80,10 @@ export function importProject(project) {
     plotViewport: {
       ...state.ui.plotViewport,
       ...(project.ui?.plotViewport ?? {}),
+    },
+    cosmicRayRemoval: {
+      ...state.ui.cosmicRayRemoval,
+      ...(project.ui?.cosmicRayRemoval ?? {}),
     },
   };
 }
