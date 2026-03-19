@@ -58,6 +58,7 @@ function renderTraceList() {
 
     item.querySelector(".trace-select-btn")?.addEventListener("click", async () => {
       selectSpectrum(id);
+      closePeakMenu();
       renderAll();
       await renderPlot();
       setStatus("スペクトルを選択しました。");
@@ -86,6 +87,7 @@ function renderTraceList() {
 
     item.querySelector(".trace-remove-btn")?.addEventListener("click", async () => {
       removeSpectrum(id);
+      closePeakMenu();
       renderAll();
       await renderPlot();
       setStatus("スペクトルを削除しました。");
@@ -93,47 +95,59 @@ function renderTraceList() {
   });
 }
 
-function renderPeakList() {
-  const container = document.getElementById("peakList");
-  if (!container) return;
+function closePeakMenu() {
+  state.ui.peakMenu = {
+    ...state.ui.peakMenu,
+    open: false,
+    spectrumId: null,
+    peakIndex: null,
+    peakNumber: null,
+    x: null,
+    y: null,
+    prominence: null,
+  };
+}
 
-  const spectrum = getSelectedSpectrum();
-  const peaks = spectrum?.detectedPeaks ?? [];
+function formatPeakMenuMeta(peakMenu) {
+  if (!peakMenu.open) {
+    return "ピークをクリックするとここに情報を表示します。";
+  }
 
-  if (!spectrum) {
-    container.innerHTML = '<div class="empty">スペクトルを選択してください。</div>';
+  return [
+    `#${peakMenu.peakNumber}`,
+    `x = ${Number(peakMenu.x).toFixed(4)}`,
+    `y = ${Number(peakMenu.y).toFixed(4)}`,
+    `prominence = ${Number(peakMenu.prominence).toFixed(4)}`,
+  ].join("<br>");
+}
+
+function renderPeakMenu() {
+  const menu = document.getElementById("peakMenu");
+  const meta = document.getElementById("peakMenuMeta");
+  const normalizeBtn = document.getElementById("normalizePeakBtn");
+  if (!menu || !meta || !normalizeBtn) return;
+
+  const peakMenu = state.ui.peakMenu;
+  meta.innerHTML = formatPeakMenuMeta(peakMenu);
+  normalizeBtn.disabled = !peakMenu.open;
+
+  if (!peakMenu.open) {
+    menu.hidden = true;
+    menu.style.left = "";
+    menu.style.top = "";
     return;
   }
 
-  if (!peaks.length) {
-    container.innerHTML = '<div class="empty">ピークはまだ検出されていません。</div>';
-    return;
-  }
+  menu.hidden = false;
+  const stage = menu.parentElement;
+  const stageRect = stage?.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth || 240;
+  const menuHeight = menu.offsetHeight || 140;
+  const safeLeft = Math.max(12, Math.min((peakMenu.clientX - (stageRect?.left ?? 0)) + 12, (stageRect?.width ?? 0) - menuWidth - 12));
+  const safeTop = Math.max(12, Math.min((peakMenu.clientY - (stageRect?.top ?? 0)) + 12, (stageRect?.height ?? 0) - menuHeight - 12));
 
-  container.innerHTML = peaks.map((p, idx) => `
-    <div class="peak-item">
-      <div><strong>#${idx + 1}</strong></div>
-      <div>x = ${Number(p.x).toFixed(4)}</div>
-      <div>y = ${Number(p.y).toFixed(4)}</div>
-      <div>prominence = ${Number(p.prominence).toFixed(4)}</div>
-      <button data-peak-index="${p.index}">Normalize to this peak = 1</button>
-    </div>
-  `).join("");
-
-  container.querySelectorAll("button[data-peak-index]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const peakIndex = Number(btn.dataset.peakIndex);
-      const target = getSelectedSpectrum();
-      if (!target) return;
-      try {
-        normalizeByPeakIndex(target, peakIndex);
-        await renderPlot();
-        setStatus("選択ピークを 1 に正規化しました。");
-      } catch (error) {
-        setStatus(error.message);
-      }
-    });
-  });
+  menu.style.left = `${safeLeft}px`;
+  menu.style.top = `${safeTop}px`;
 }
 
 function renderCosmicRayControls() {
@@ -194,8 +208,7 @@ export function renderAll() {
   document.getElementById("offsetStepInput").value = state.ui.offsetStep;
   document.getElementById("plotHeightInput").value = state.ui.plotHeight;
   renderTraceList();
-  renderPeakList();
-  renderCosmicRayControls();
+  renderPeakMenu();
 }
 
 async function handleSpectrumFiles(fileList) {
@@ -257,30 +270,60 @@ function bindSpectrumDropzone() {
   });
 }
 
-async function handlePlotPointSelection(eventData) {
-  const mode = state.ui.cosmicRayRemoval ?? {};
-  if (!mode.enabled) return;
+function bindPeakMenu() {
+  const normalizeBtn = document.getElementById("normalizePeakBtn");
+  const closeBtn = document.getElementById("closePeakMenuBtn");
+  const menu = document.getElementById("peakMenu");
+  const plot = document.getElementById("plot");
 
-  const point = eventData?.points?.[0];
-  const spectrum = getSelectedSpectrum();
-  if (!point || !spectrum) return;
+  normalizeBtn?.addEventListener("click", async () => {
+    const target = getSelectedSpectrum();
+    const peakIndex = state.ui.peakMenu.peakIndex;
+    if (!target || !Number.isInteger(peakIndex)) return;
 
-  const spectrumId = point.data?.meta?.spectrumId;
-  const traceRole = point.data?.meta?.traceRole;
-  const pointIndex = Number(point.pointIndex);
-  if (traceRole !== "spectrum" || spectrumId !== spectrum.id || !Number.isInteger(pointIndex)) {
-    setStatus("選択中スペクトルの線をクリックして除去点を選択してください。");
-    return;
-  }
+    try {
+      normalizeByPeakIndex(target, peakIndex);
+      closePeakMenu();
+      renderAll();
+      await renderPlot();
+      setStatus("選択ピークを 1 に正規化しました。");
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
 
-  try {
-    selectRemovalPoint(spectrum, pointIndex);
-    renderCosmicRayControls();
-    await renderPlot();
-    setStatus(`宇宙線除去の対象点を選択しました (index ${pointIndex})。`);
-  } catch (error) {
-    setStatus(error.message);
-  }
+  closeBtn?.addEventListener("click", () => {
+    closePeakMenu();
+    renderPeakMenu();
+  });
+
+  plot?.addEventListener("peak-marker-click", (event) => {
+    const detail = event.detail ?? {};
+    state.ui.peakMenu = {
+      open: true,
+      spectrumId: detail.spectrumId ?? null,
+      peakIndex: detail.peakIndex ?? null,
+      peakNumber: detail.peakNumber ?? null,
+      x: detail.x ?? null,
+      y: detail.y ?? null,
+      prominence: detail.prominence ?? null,
+      clientX: detail.clientX ?? 0,
+      clientY: detail.clientY ?? 0,
+    };
+    renderPeakMenu();
+  });
+
+  plot?.addEventListener("peak-marker-clear", () => {
+    closePeakMenu();
+    renderPeakMenu();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!state.ui.peakMenu.open) return;
+    if (menu?.contains(event.target) || plot?.contains(event.target)) return;
+    closePeakMenu();
+    renderPeakMenu();
+  });
 }
 
 export function bindUi() {
@@ -294,6 +337,7 @@ export function bindUi() {
   });
 
   bindSpectrumDropzone();
+  bindPeakMenu();
 
   document.getElementById("projectInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.[0]) {
@@ -353,14 +397,17 @@ export function bindUi() {
     const minProminence = Number(document.getElementById("prominenceInput").value) || 0;
     const minDistance = Number(document.getElementById("distanceInput").value) || 5;
     spectrum.detectedPeaks = detectPeaks(spectrum.xProcessed, spectrum.yProcessed, { minProminence, minDistance });
-    renderPeakList();
-    setStatus(`${spectrum.detectedPeaks.length} peak(s) detected.`);
+    closePeakMenu();
+    await renderPlot();
+    setStatus(`${spectrum.detectedPeaks.length} peak(s) detected. マーカーをクリックすると操作できます。`);
   });
 
   document.getElementById("resetNormalizationBtn")?.addEventListener("click", async () => {
     const spectrum = getSelectedSpectrum();
     if (!spectrum) return;
     resetProcessed(spectrum);
+    spectrum.detectedPeaks = [];
+    closePeakMenu();
     renderAll();
     await renderPlot();
     setStatus("選択スペクトルを元データに戻しました。");

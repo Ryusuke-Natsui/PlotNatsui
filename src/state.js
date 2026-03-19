@@ -15,9 +15,16 @@ export const state = {
       lockYRange: false,
       snapXRange: true,
     },
-    cosmicRayRemoval: {
-      enabled: false,
-      halfWidth: 1,
+    peakMenu: {
+      open: false,
+      spectrumId: null,
+      peakIndex: null,
+      peakNumber: null,
+      x: null,
+      y: null,
+      prominence: null,
+      clientX: 0,
+      clientY: 0,
     },
   },
 };
