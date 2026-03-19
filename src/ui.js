@@ -1,9 +1,32 @@
-import { state, addSpectrum, removeSpectrum, updateSpectrum, selectSpectrum, getSelectedSpectrum, importProject } from "./state.js";
+import {
+  state,
+  addSpectrum,
+  removeSpectrum,
+  updateSpectrum,
+  selectSpectrum,
+  getSelectedSpectrum,
+  importProject,
+} from "./state.js";
 import { parseSpectrumFile } from "./parser.js";
-import { renderPlot, exportPlotPng, resetPlotZoom, applyManualAxisRanges, snapCurrentXAxisRange, fixCurrentScale } from "./plot.js";
-import { renderPlot, exportPlotPng, resetPlotZoom, applyManualAxisRanges, snapCurrentXAxisRange, fixCurrentScale, getCurrentPlotRanges, setPlotPointSelectionHandler } from "./plot.js";
+import {
+  renderPlot,
+  exportPlotPng,
+  resetPlotZoom,
+  applyManualAxisRanges,
+  snapCurrentXAxisRange,
+  fixCurrentScale,
+  setPlotPointSelectionHandler,
+} from "./plot.js";
 import { detectPeaks } from "./peaks.js";
-import { normalizeByPeakIndex, resetProcessed, hasMeasurementTimeSpectra } from "./process.js";
+import {
+  normalizeByPeakIndex,
+  resetProcessed,
+  hasMeasurementTimeSpectra,
+  selectRemovalPoint,
+  clearRemovalPoint,
+  removeSelectedSpike,
+  undoLastSpikeRemoval,
+} from "./process.js";
 import { saveProjectJson } from "./export.js";
 
 const DEFAULT_TRACE_COLORS = [
@@ -17,16 +40,7 @@ const TRACE_LINE_STYLE_OPTIONS = [
   { value: "dot", label: "Dot" },
   { value: "dashdot", label: "Dash dot" },
 ];
-const peakMenuState = {
-  open: false,
-  spectrumId: null,
-  peakIndex: null,
-  peakNumber: null,
-  x: null,
-  y: null,
-  prominence: null,
-  clientX: 0,
-  clientY: 0,
+
 const X_LABEL_PRESETS = {
   raman: "Raman shift / cm⁻¹",
   pl: "Wavelength / nm",
@@ -39,6 +53,18 @@ const Y_LABEL_PRESETS = {
   counts: "Intensity (counts)",
   cps: "Intensity (cps)",
   custom: null,
+};
+
+const peakMenuState = {
+  open: false,
+  spectrumId: null,
+  peakIndex: null,
+  peakNumber: null,
+  x: null,
+  y: null,
+  prominence: null,
+  clientX: 0,
+  clientY: 0,
 };
 
 function setStatus(message) {
@@ -55,6 +81,26 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function normalizeHexColor(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  const withHash = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+  return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toLowerCase() : null;
+}
+
+function resolveLabelFromPreset(presetMap, presetKey, fallback) {
+  return presetMap[presetKey] ?? fallback;
+}
+
+function syncAutoYLabel() {
+  if (hasMeasurementTimeSpectra(state.spectra)) {
+    state.ui.yLabelPreset = "cps";
+    state.ui.yLabel = Y_LABEL_PRESETS.cps;
+  } else if (state.ui.yLabelPreset !== "custom") {
+    state.ui.yLabel = resolveLabelFromPreset(Y_LABEL_PRESETS, state.ui.yLabelPreset, state.ui.yLabel);
+  }
+}
+
 function resetPeakMenuState() {
   peakMenuState.open = false;
   peakMenuState.spectrumId = null;
@@ -63,6 +109,8 @@ function resetPeakMenuState() {
   peakMenuState.x = null;
   peakMenuState.y = null;
   peakMenuState.prominence = null;
+  peakMenuState.clientX = 0;
+  peakMenuState.clientY = 0;
 }
 
 function closePeakMenu() {
@@ -79,17 +127,144 @@ function openPeakMenu(detail = {}) {
   peakMenuState.prominence = detail.prominence ?? null;
   peakMenuState.clientX = detail.clientX ?? 0;
   peakMenuState.clientY = detail.clientY ?? 0;
-function resolveLabelFromPreset(presetMap, presetKey, fallback) {
-  return presetMap[presetKey] ?? fallback;
 }
 
-function syncAutoYLabel() {
-  if (hasMeasurementTimeSpectra(state.spectra)) {
-    state.ui.yLabelPreset = "cps";
-    state.ui.yLabel = Y_LABEL_PRESETS.cps;
-  } else if (state.ui.yLabelPreset !== "custom") {
-    state.ui.yLabel = resolveLabelFromPreset(Y_LABEL_PRESETS, state.ui.yLabelPreset, state.ui.yLabel);
+function formatPeakMenuMeta() {
+  if (!peakMenuState.open) {
+    return "ピークをクリックするとここに情報を表示します。";
   }
+
+  return [
+    `#${peakMenuState.peakNumber}`,
+    `x = ${Number(peakMenuState.x).toFixed(4)}`,
+    `y = ${Number(peakMenuState.y).toFixed(4)}`,
+    `prominence = ${Number(peakMenuState.prominence).toFixed(4)}`,
+  ].join("<br>");
+}
+
+function renderPeakMenu() {
+  const menu = document.getElementById("peakMenu");
+  const meta = document.getElementById("peakMenuMeta");
+  const normalizeBtn = document.getElementById("normalizePeakBtn");
+  if (!menu || !meta || !normalizeBtn) return;
+
+  meta.innerHTML = formatPeakMenuMeta();
+  normalizeBtn.disabled = !peakMenuState.open;
+
+  if (!peakMenuState.open) {
+    menu.hidden = true;
+    menu.style.left = "";
+    menu.style.top = "";
+    return;
+  }
+
+  menu.hidden = false;
+  const stage = menu.parentElement;
+  const stageRect = stage?.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth || 240;
+  const menuHeight = menu.offsetHeight || 140;
+  const leftBase = peakMenuState.clientX - (stageRect?.left ?? 0) + 12;
+  const topBase = peakMenuState.clientY - (stageRect?.top ?? 0) + 12;
+  const safeLeft = Math.max(12, Math.min(leftBase, Math.max(12, (stageRect?.width ?? menuWidth + 24) - menuWidth - 12)));
+  const safeTop = Math.max(12, Math.min(topBase, Math.max(12, (stageRect?.height ?? menuHeight + 24) - menuHeight - 12)));
+
+  menu.style.left = `${safeLeft}px`;
+  menu.style.top = `${safeTop}px`;
+}
+
+function renderPeakList() {
+  const container = document.getElementById("peakList");
+  if (!container) return;
+
+  const spectrum = getSelectedSpectrum();
+  if (!spectrum) {
+    container.className = "peak-list empty";
+    container.textContent = "ピークを表示するにはスペクトルを選択してください。";
+    return;
+  }
+
+  const peaks = spectrum.detectedPeaks ?? [];
+  if (!peaks.length) {
+    container.className = "peak-list empty";
+    container.textContent = "ピークはまだ検出されていません。";
+    return;
+  }
+
+  container.className = "peak-list";
+  container.innerHTML = peaks.map((peak, index) => `
+    <div class="peak-item">
+      <strong>#${index + 1}</strong>
+      <span>x = ${Number(peak.x).toFixed(4)}</span>
+      <span>y = ${Number(peak.y).toFixed(4)}</span>
+      <span>prominence = ${Number(peak.prominence).toFixed(4)}</span>
+    </div>
+  `).join("");
+}
+
+function renderLabelControls() {
+  const xPresetInput = document.getElementById("xLabelPresetInput");
+  const yPresetInput = document.getElementById("yLabelPresetInput");
+  const xLabelInput = document.getElementById("xLabelInput");
+  const yLabelInput = document.getElementById("yLabelInput");
+  const hasMeasurementTime = hasMeasurementTimeSpectra(state.spectra);
+
+  if (xPresetInput) xPresetInput.value = state.ui.xLabelPreset;
+  if (yPresetInput) yPresetInput.value = hasMeasurementTime ? "cps" : state.ui.yLabelPreset;
+  if (xLabelInput) xLabelInput.value = state.ui.xLabel;
+  if (yLabelInput) yLabelInput.value = state.ui.yLabel;
+  if (xLabelInput) xLabelInput.disabled = state.ui.xLabelPreset !== "custom";
+  if (yLabelInput) yLabelInput.disabled = hasMeasurementTime || state.ui.yLabelPreset !== "custom";
+  if (yPresetInput) yPresetInput.disabled = hasMeasurementTime;
+}
+
+function renderCosmicRayControls() {
+  const spectrum = getSelectedSpectrum();
+  const enabledInput = document.getElementById("cosmicRayModeInput");
+  const halfWidthInput = document.getElementById("cosmicRayHalfWidthInput");
+  const selectionText = document.getElementById("cosmicRaySelectionText");
+  const removeBtn = document.getElementById("removeCosmicRayBtn");
+  const undoBtn = document.getElementById("undoCosmicRayBtn");
+  const clearBtn = document.getElementById("clearCosmicRaySelectionBtn");
+
+  if (enabledInput) enabledInput.checked = Boolean(state.ui.cosmicRayRemoval?.enabled);
+  if (halfWidthInput) halfWidthInput.value = String(state.ui.cosmicRayRemoval?.halfWidth ?? 1);
+
+  if (!spectrum) {
+    if (selectionText) selectionText.textContent = "スペクトルを選択してください。";
+    if (removeBtn) removeBtn.disabled = true;
+    if (undoBtn) undoBtn.disabled = true;
+    if (clearBtn) clearBtn.disabled = true;
+    return;
+  }
+
+  const index = spectrum.selectedRemovalPointIndex;
+  if (Number.isInteger(index)) {
+    const x = spectrum.xProcessed[index];
+    const y = spectrum.yProcessed[index];
+    if (selectionText) selectionText.textContent = `選択中: index ${index}, x = ${Number(x).toFixed(4)}, y = ${Number(y).toFixed(4)}`;
+  } else if (selectionText) {
+    selectionText.textContent = "まだ点は選択されていません。";
+  }
+
+  if (removeBtn) removeBtn.disabled = !Number.isInteger(index);
+  if (undoBtn) undoBtn.disabled = !(spectrum.cosmicRayHistory?.length);
+  if (clearBtn) clearBtn.disabled = !Number.isInteger(index);
+}
+
+function parseOptionalNumber(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return null;
+  const value = input.value.trim();
+  if (!value) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function getRangeFromInputs(minId, maxId) {
+  const min = parseOptionalNumber(minId);
+  const max = parseOptionalNumber(maxId);
+  if (min === null || max === null || min === max) return null;
+  return min < max ? [min, max] : [max, min];
 }
 
 function renderTraceList() {
@@ -110,14 +285,14 @@ function renderTraceList() {
     return `
       <div class="trace-item" data-trace-id="${s.id}">
         <div class="trace-head">
-          <button class="trace-select-btn">${state.selectedSpectrumId === s.id ? "Selected" : "Select"}</button>
+          <button class="trace-select-btn" type="button">${state.selectedSpectrumId === s.id ? "Selected" : "Select"}</button>
           <span class="badge">${s.metadata?.pointCount ?? 0} pts</span>
         </div>
         <div class="trace-name">${escapeHtml(s.name)}</div>
         <div class="trace-row">
           <label><input type="checkbox" class="trace-visible" ${s.visible ? "checked" : ""} /> show</label>
           <input type="text" class="trace-rename" value="${escapeHtml(s.name)}" />
-          <button class="trace-remove-btn">Remove</button>
+          <button class="trace-remove-btn" type="button">Remove</button>
         </div>
         <div class="trace-controls trace-controls-extended">
           <label>
@@ -139,38 +314,18 @@ function renderTraceList() {
             Offset
             <input type="number" class="trace-offset" step="0.1" value="${Number(s.offset) || 0}" />
           </label>
+          <label>
+            Measurement time (s)
+            <input type="number" class="trace-measurement-time" min="0" step="0.001" placeholder="counts only" value="${s.measurementTimeSeconds ?? ""}" />
+          </label>
         </div>
-  container.innerHTML = state.spectra.map((s) => `
-    <div class="trace-item" data-trace-id="${s.id}">
-      <div class="trace-head">
-        <button class="trace-select-btn">${state.selectedSpectrumId === s.id ? "Selected" : "Select"}</button>
-        <span class="badge">${s.metadata?.pointCount ?? 0} pts</span>
-      </div>
-      <div class="trace-name">${escapeHtml(s.name)}</div>
-      <div class="trace-row">
-        <label><input type="checkbox" class="trace-visible" ${s.visible ? "checked" : ""} /> show</label>
-        <input type="text" class="trace-rename" value="${escapeHtml(s.name)}" />
-        <button class="trace-remove-btn">Remove</button>
-      </div>
-      <div class="trace-controls">
-        <label>
-          Line width
-          <input type="number" class="trace-width" min="1" step="0.5" value="${Number(s.lineWidth) || 2}" />
-        </label>
-        <label>
-          Offset
-          <input type="number" class="trace-offset" step="0.1" value="${Number(s.offset) || 0}" />
-        </label>
-        <label>
-          Measurement time (s)
-          <input type="number" class="trace-measurement-time" min="0" step="0.001" placeholder="counts only" value="${s.measurementTimeSeconds ?? ""}" />
-        </label>
       </div>
     `;
   }).join("");
 
   container.querySelectorAll(".trace-item").forEach((item) => {
     const id = item.dataset.traceId;
+    if (!id) return;
 
     item.querySelector(".trace-select-btn")?.addEventListener("click", async () => {
       selectSpectrum(id);
@@ -205,9 +360,10 @@ function renderTraceList() {
         const spectrumIndex = state.spectra.findIndex((entry) => entry.id === id);
         const fallback = spectrumIndex >= 0 ? DEFAULT_TRACE_COLORS[spectrumIndex % DEFAULT_TRACE_COLORS.length] : "#2563eb";
         const spectrum = state.spectra.find((entry) => entry.id === id);
-        colorText.value = spectrum?.color || fallback;
+        if (colorText) colorText.value = spectrum?.color || fallback;
         return;
       }
+
       if (colorPicker) colorPicker.value = normalizedColor;
       if (colorText) colorText.value = normalizedColor;
       updateSpectrum(id, { color: normalizedColor });
@@ -257,127 +413,22 @@ function renderTraceList() {
   });
 }
 
-function formatPeakMenuMeta() {
-  if (!peakMenuState.open) {
-    return "ピークをクリックするとここに情報を表示します。";
-  }
-
-  return [
-    `#${peakMenuState.peakNumber}`,
-    `x = ${Number(peakMenuState.x).toFixed(4)}`,
-    `y = ${Number(peakMenuState.y).toFixed(4)}`,
-    `prominence = ${Number(peakMenuState.prominence).toFixed(4)}`,
-  ].join("<br>");
-}
-
-function renderPeakMenu() {
-  const menu = document.getElementById("peakMenu");
-  const meta = document.getElementById("peakMenuMeta");
-  const normalizeBtn = document.getElementById("normalizePeakBtn");
-  if (!menu || !meta || !normalizeBtn) return;
-
-  meta.innerHTML = formatPeakMenuMeta();
-  normalizeBtn.disabled = !peakMenuState.open;
-
-  if (!peakMenuState.open) {
-    menu.hidden = true;
-    menu.style.left = "";
-    menu.style.top = "";
-    return;
-  }
-
-  menu.hidden = false;
-  const stage = menu.parentElement;
-  const stageRect = stage?.getBoundingClientRect();
-  const menuWidth = menu.offsetWidth || 240;
-  const menuHeight = menu.offsetHeight || 140;
-  const safeLeft = Math.max(12, Math.min((peakMenuState.clientX - (stageRect?.left ?? 0)) + 12, (stageRect?.width ?? 0) - menuWidth - 12));
-  const safeTop = Math.max(12, Math.min((peakMenuState.clientY - (stageRect?.top ?? 0)) + 12, (stageRect?.height ?? 0) - menuHeight - 12));
-
-  menu.style.left = `${safeLeft}px`;
-  menu.style.top = `${safeTop}px`;
-}
-
-function renderCosmicRayControls() {
-  const spectrum = getSelectedSpectrum();
-  const enabledInput = document.getElementById("cosmicRayModeInput");
-  const halfWidthInput = document.getElementById("cosmicRayHalfWidthInput");
-  const selectionText = document.getElementById("cosmicRaySelectionText");
-  const removeBtn = document.getElementById("removeCosmicRayBtn");
-  const undoBtn = document.getElementById("undoCosmicRayBtn");
-  const clearBtn = document.getElementById("clearCosmicRaySelectionBtn");
-
-  if (enabledInput) enabledInput.checked = Boolean(state.ui.cosmicRayRemoval?.enabled);
-  if (halfWidthInput) halfWidthInput.value = String(state.ui.cosmicRayRemoval?.halfWidth ?? 1);
-
-  if (!spectrum) {
-    if (selectionText) selectionText.textContent = "スペクトルを選択してください。";
-    if (removeBtn) removeBtn.disabled = true;
-    if (undoBtn) undoBtn.disabled = true;
-    if (clearBtn) clearBtn.disabled = true;
-    return;
-  }
-
-  const index = spectrum.selectedRemovalPointIndex;
-  if (Number.isInteger(index)) {
-    const x = spectrum.xProcessed[index];
-    const y = spectrum.yProcessed[index];
-    if (selectionText) selectionText.textContent = `選択中: index ${index}, x = ${Number(x).toFixed(4)}, y = ${Number(y).toFixed(4)}`;
-  } else if (selectionText) {
-    selectionText.textContent = "まだ点は選択されていません。";
-  }
-
-  if (removeBtn) removeBtn.disabled = !Number.isInteger(index);
-  if (undoBtn) undoBtn.disabled = !(spectrum.cosmicRayHistory?.length);
-  if (clearBtn) clearBtn.disabled = !Number.isInteger(index);
-}
-
-function normalizeHexColor(value) {
-  const trimmed = String(value ?? "").trim();
-  if (!trimmed) return null;
-  const withHash = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
-  return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toLowerCase() : null;
-}
-
-function parseOptionalNumber(inputId) {
-  const input = document.getElementById(inputId);
-  if (!input) return null;
-  const value = input.value.trim();
-  if (!value) return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-function getRangeFromInputs(minId, maxId) {
-  const min = parseOptionalNumber(minId);
-  const max = parseOptionalNumber(maxId);
-  if (min === null || max === null || min === max) return null;
-  return min < max ? [min, max] : [max, min];
-}
-
-function renderLabelControls() {
-  const xPresetInput = document.getElementById("xLabelPresetInput");
-  const yPresetInput = document.getElementById("yLabelPresetInput");
-  const xLabelInput = document.getElementById("xLabelInput");
-  const yLabelInput = document.getElementById("yLabelInput");
-
-  if (xPresetInput) xPresetInput.value = state.ui.xLabelPreset;
-  if (yPresetInput) yPresetInput.value = hasMeasurementTimeSpectra(state.spectra) ? "cps" : state.ui.yLabelPreset;
-  if (xLabelInput) xLabelInput.value = state.ui.xLabel;
-  if (yLabelInput) yLabelInput.value = state.ui.yLabel;
-  if (xLabelInput) xLabelInput.disabled = state.ui.xLabelPreset !== "custom";
-  if (yLabelInput) yLabelInput.disabled = hasMeasurementTimeSpectra(state.spectra) || state.ui.yLabelPreset !== "custom";
-}
-
 export function renderAll() {
   syncAutoYLabel();
   document.body.classList.toggle("dark", state.ui.theme === "dark");
+  const themeSelect = document.getElementById("themeSelect");
+  const offsetStepInput = document.getElementById("offsetStepInput");
+  const plotHeightInput = document.getElementById("plotHeightInput");
+  const axisTitleFontSizeInput = document.getElementById("axisTitleFontSizeInput");
+  const axisTickFontSizeInput = document.getElementById("axisTickFontSizeInput");
+
+  if (themeSelect) themeSelect.value = state.ui.theme;
+  if (offsetStepInput) offsetStepInput.value = String(state.ui.offsetStep);
+  if (plotHeightInput) plotHeightInput.value = String(state.ui.plotHeight);
+  if (axisTitleFontSizeInput) axisTitleFontSizeInput.value = String(state.ui.axisTitleFontSize);
+  if (axisTickFontSizeInput) axisTickFontSizeInput.value = String(state.ui.axisTickFontSize);
+
   renderLabelControls();
-  document.getElementById("themeSelect").value = state.ui.theme;
-  document.getElementById("offsetStepInput").value = state.ui.offsetStep;
-  document.getElementById("plotHeightInput").value = state.ui.plotHeight;
-  document.getElementById("axisTitleFontSizeInput").value = state.ui.axisTitleFontSize;
-  document.getElementById("axisTickFontSizeInput").value = state.ui.axisTickFontSize;
   renderTraceList();
   renderPeakMenu();
   renderPeakList();
@@ -394,6 +445,7 @@ async function handleSpectrumFiles(fileList) {
       setStatus(error.message);
     }
   }
+
   syncAutoYLabel();
   renderAll();
   await renderPlot();
@@ -410,15 +462,12 @@ async function handleProjectFile(file) {
   setStatus("プロジェクトを読み込みました。");
 }
 
-function bindFileDropTarget(dropzone, onDropFiles) {
-  if (!dropzone) return;
+function bindFileDropTarget(dropzone, fileInput, onDropFiles) {
+  if (!dropzone || !fileInput) return;
 
   let dragDepth = 0;
-
   const isFileDrag = (event) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
-  const setDragActive = (active) => {
-    dropzone.classList.toggle("drag-active", active);
-  };
+  const setDragActive = (active) => dropzone.classList.toggle("drag-active", active);
 
   dropzone.addEventListener("dragenter", (event) => {
     if (!isFileDrag(event)) return;
@@ -453,10 +502,23 @@ function bindFileDropTarget(dropzone, onDropFiles) {
     setDragActive(false);
     if (event.dataTransfer?.files?.length) {
       await onDropFiles(event.dataTransfer.files);
+      fileInput.value = "";
     }
   });
+}
 
-  fileInput.addEventListener("change", async (event) => {
+function bindSpectrumDropzones() {
+  const fileInput = document.getElementById("fileInput");
+  const dropzones = [document.getElementById("fileDropzone"), document.getElementById("plotDropzone")].filter(Boolean);
+  if (!fileInput || !dropzones.length) return;
+
+  dropzones.forEach((dropzone) => {
+    bindFileDropTarget(dropzone, fileInput, async (files) => {
+      await handleSpectrumFiles(files);
+    });
+  });
+}
+
 function bindPeakMenu() {
   const normalizeBtn = document.getElementById("normalizePeakBtn");
   const closeBtn = document.getElementById("closePeakMenuBtn");
@@ -464,7 +526,7 @@ function bindPeakMenu() {
   const plot = document.getElementById("plot");
 
   normalizeBtn?.addEventListener("click", async () => {
-    const target = getSelectedSpectrum();
+    const target = state.spectra.find((entry) => entry.id === peakMenuState.spectrumId) ?? getSelectedSpectrum();
     const peakIndex = peakMenuState.peakIndex;
     if (!target || !Number.isInteger(peakIndex)) return;
 
@@ -505,21 +567,36 @@ function bindPeakMenu() {
     if (event.key !== "Escape" || !peakMenuState.open) return;
     closePeakMenu();
     renderPeakMenu();
-function bindSpectrumDropzones() {
-  const fileInput = document.getElementById("fileInput");
-  const dropzones = [document.getElementById("fileDropzone"), document.getElementById("plotDropzone")].filter(Boolean);
-  if (!fileInput || !dropzones.length) return;
-
-  dropzones.forEach((dropzone) => {
-    bindFileDropTarget(dropzone, async (files) => {
-      await handleSpectrumFiles(files);
-      fileInput.value = "";
-    });
   });
+}
+
+async function handlePlotPointSelection(eventData) {
+  if (!state.ui.cosmicRayRemoval?.enabled) return;
+
+  const point = eventData?.points?.[0];
+  const spectrumId = point?.data?.meta?.spectrumId;
+  const pointIndex = point?.pointIndex;
+  if (!spectrumId || !Number.isInteger(pointIndex)) return;
+
+  const spectrum = state.spectra.find((entry) => entry.id === spectrumId);
+  if (!spectrum) return;
+
+  try {
+    selectSpectrum(spectrumId);
+    selectRemovalPoint(spectrum, pointIndex);
+    closePeakMenu();
+    renderAll();
+    await renderPlot();
+    setStatus(`除去対象点を選択しました (index ${pointIndex})。`);
+  } catch (error) {
+    setStatus(error.message);
+  }
 }
 
 export function bindUi() {
   setPlotPointSelectionHandler(handlePlotPointSelection);
+  bindPeakMenu();
+  bindSpectrumDropzones();
 
   document.getElementById("fileInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.length) {
@@ -527,12 +604,6 @@ export function bindUi() {
       event.target.value = "";
     }
   });
-}
-
-export function bindUi() {
-  bindSpectrumDropzone();
-  bindPeakMenu();
-  bindSpectrumDropzones();
 
   document.getElementById("projectInput")?.addEventListener("change", async (event) => {
     const [file] = event.target.files ?? [];
@@ -541,24 +612,6 @@ export function bindUi() {
     event.target.value = "";
   });
 
-  document.getElementById("exportPngBtn")?.addEventListener("click", async () => {
-    await exportPlotPng();
-  });
-
-  document.getElementById("saveProjectBtn")?.addEventListener("click", () => {
-    saveProjectJson();
-    setStatus("プロジェクトを書き出しました。");
-  });
-
-  document.getElementById("applyViewBtn")?.addEventListener("click", async () => {
-    state.ui.xLabel = document.getElementById("xLabelInput").value.trim() || "X";
-    state.ui.yLabel = document.getElementById("yLabelInput").value.trim() || "Y";
-    state.ui.theme = document.getElementById("themeSelect").value;
-    state.ui.offsetStep = Number(document.getElementById("offsetStepInput").value) || 0;
-    state.ui.plotHeight = Number(document.getElementById("plotHeightInput").value) || 560;
-    renderAll();
-    await renderPlot();
-    setStatus("表示設定を更新しました。");
   document.getElementById("xLabelPresetInput")?.addEventListener("change", (event) => {
     const preset = event.target.value;
     state.ui.xLabelPreset = preset;
@@ -581,9 +634,26 @@ export function bindUi() {
     renderLabelControls();
   });
 
-  document.getElementById("resetZoomBtn")?.addEventListener("click", async () => {
-    await resetPlotZoom();
-    setStatus("ズームをリセットしました。");
+  document.getElementById("applyViewBtn")?.addEventListener("click", async () => {
+    const xPreset = document.getElementById("xLabelPresetInput")?.value ?? state.ui.xLabelPreset;
+    const yPreset = document.getElementById("yLabelPresetInput")?.value ?? state.ui.yLabelPreset;
+    state.ui.xLabelPreset = xPreset;
+    state.ui.yLabelPreset = hasMeasurementTimeSpectra(state.spectra) ? "cps" : yPreset;
+    state.ui.xLabel = xPreset === "custom"
+      ? (document.getElementById("xLabelInput")?.value.trim() || state.ui.xLabel)
+      : resolveLabelFromPreset(X_LABEL_PRESETS, xPreset, state.ui.xLabel);
+    state.ui.yLabel = state.ui.yLabelPreset === "custom"
+      ? (document.getElementById("yLabelInput")?.value.trim() || state.ui.yLabel)
+      : resolveLabelFromPreset(Y_LABEL_PRESETS, state.ui.yLabelPreset, state.ui.yLabel);
+    syncAutoYLabel();
+    state.ui.theme = document.getElementById("themeSelect")?.value || "light";
+    state.ui.offsetStep = Number(document.getElementById("offsetStepInput")?.value) || 0;
+    state.ui.plotHeight = Number(document.getElementById("plotHeightInput")?.value) || 560;
+    state.ui.axisTitleFontSize = Number(document.getElementById("axisTitleFontSizeInput")?.value) || 30;
+    state.ui.axisTickFontSize = Number(document.getElementById("axisTickFontSizeInput")?.value) || 18;
+    renderAll();
+    await renderPlot();
+    setStatus("表示設定を更新しました。");
   });
 
   document.getElementById("applyAxisRangeBtn")?.addEventListener("click", async () => {
@@ -612,26 +682,6 @@ export function bindUi() {
   document.getElementById("resetZoomBtn")?.addEventListener("click", async () => {
     await resetPlotZoom();
     setStatus("ズームをリセットしました。");
-  document.getElementById("applyViewBtn")?.addEventListener("click", async () => {
-    const xPreset = document.getElementById("xLabelPresetInput").value;
-    const yPreset = document.getElementById("yLabelPresetInput").value;
-    state.ui.xLabelPreset = xPreset;
-    state.ui.yLabelPreset = hasMeasurementTimeSpectra(state.spectra) ? "cps" : yPreset;
-    state.ui.xLabel = xPreset === "custom"
-      ? (document.getElementById("xLabelInput").value.trim() || state.ui.xLabel)
-      : resolveLabelFromPreset(X_LABEL_PRESETS, xPreset, state.ui.xLabel);
-    state.ui.yLabel = state.ui.yLabelPreset === "custom"
-      ? (document.getElementById("yLabelInput").value.trim() || state.ui.yLabel)
-      : resolveLabelFromPreset(Y_LABEL_PRESETS, state.ui.yLabelPreset, state.ui.yLabel);
-    syncAutoYLabel();
-    state.ui.theme = document.getElementById("themeSelect").value;
-    state.ui.offsetStep = Number(document.getElementById("offsetStepInput").value) || 0;
-    state.ui.plotHeight = Number(document.getElementById("plotHeightInput").value) || 560;
-    state.ui.axisTitleFontSize = Number(document.getElementById("axisTitleFontSizeInput").value) || 30;
-    state.ui.axisTickFontSize = Number(document.getElementById("axisTickFontSizeInput").value) || 18;
-    renderAll();
-    await renderPlot();
-    setStatus("表示設定を更新しました。");
   });
 
   document.getElementById("detectPeaksBtn")?.addEventListener("click", async () => {
@@ -641,17 +691,11 @@ export function bindUi() {
       return;
     }
 
-    const prominence = Number(document.getElementById("prominenceInput").value) || 0;
-    const minDistance = Number(document.getElementById("distanceInput").value) || 1;
-    spectrum.detectedPeaks = detectPeaks(spectrum.xProcessed, spectrum.yProcessed, { minProminence: prominence, minDistance });
-    renderPeakList();
-    await renderPlot();
-    setStatus(`${spectrum.detectedPeaks.length} 個のピークを検出しました。`);
-    const minProminence = Number(document.getElementById("prominenceInput").value) || 0;
-    const minDistance = Number(document.getElementById("distanceInput").value) || 5;
+    const minProminence = Number(document.getElementById("prominenceInput")?.value) || 0;
+    const minDistance = Number(document.getElementById("distanceInput")?.value) || 5;
     spectrum.detectedPeaks = detectPeaks(spectrum.xProcessed, spectrum.yProcessed, { minProminence, minDistance });
     closePeakMenu();
-    renderPeakMenu();
+    renderAll();
     await renderPlot();
     setStatus(`${spectrum.detectedPeaks.length} peak(s) detected. マーカーをクリックすると操作できます。`);
   });
@@ -660,16 +704,12 @@ export function bindUi() {
     const spectrum = getSelectedSpectrum();
     if (!spectrum) return;
     resetProcessed(spectrum);
-    renderPeakList();
-    spectrum.detectedPeaks = [];
     closePeakMenu();
     renderAll();
     await renderPlot();
     setStatus("選択スペクトルの正規化をリセットしました。");
   });
 
-  window.addEventListener("resize", async () => {
-    await renderPlot();
   document.getElementById("cosmicRayModeInput")?.addEventListener("change", (event) => {
     state.ui.cosmicRayRemoval.enabled = event.target.checked;
     renderCosmicRayControls();
@@ -713,7 +753,7 @@ export function bindUi() {
     const spectrum = getSelectedSpectrum();
     if (!spectrum) return;
     clearRemovalPoint(spectrum);
-    renderCosmicRayControls();
+    renderAll();
     await renderPlot();
     setStatus("除去対象点の選択をクリアしました。");
   });
@@ -726,5 +766,9 @@ export function bindUi() {
   document.getElementById("saveProjectBtn")?.addEventListener("click", () => {
     saveProjectJson();
     setStatus("プロジェクト JSON を保存しました。");
+  });
+
+  window.addEventListener("resize", async () => {
+    await renderPlot();
   });
 }
