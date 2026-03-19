@@ -58,7 +58,13 @@
               <button id="resetZoomBtn" type="button" disabled>Reset zoom</button>
             </div>
           </div>
-          <div id="plot" class="plot"></div>
+          <div id="plotDropzone" class="plot-dropzone">
+            <div id="plot" class="plot"></div>
+            <div class="plot-drop-overlay" aria-hidden="true">
+              <span class="plot-drop-title">入力データをここにドロップ</span>
+              <span class="plot-drop-subtitle">txt / csv / tsv / dat をそのまま追加できます</span>
+            </div>
+          </div>
         </section>
 
         <section class="card">

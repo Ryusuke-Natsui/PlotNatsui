@@ -248,38 +248,63 @@ async function handleProjectFile(file) {
   setStatus("プロジェクトを読み込みました。");
 }
 
-function bindSpectrumDropzone() {
-  const dropzone = document.getElementById("fileDropzone");
-  const fileInput = document.getElementById("fileInput");
-  if (!dropzone || !fileInput) return;
+function bindFileDropTarget(dropzone, onDropFiles) {
+  if (!dropzone) return;
 
+  let dragDepth = 0;
+
+  const isFileDrag = (event) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
   const setDragActive = (active) => {
     dropzone.classList.toggle("drag-active", active);
   };
 
-  ["dragenter", "dragover"].forEach((type) => {
-    dropzone.addEventListener(type, (event) => {
-      event.preventDefault();
-      setDragActive(true);
-    });
+  dropzone.addEventListener("dragenter", (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepth += 1;
+    setDragActive(true);
   });
 
-  ["dragleave", "dragend"].forEach((type) => {
-    dropzone.addEventListener(type, (event) => {
-      event.preventDefault();
-      if (!dropzone.contains(event.relatedTarget)) {
-        setDragActive(false);
-      }
-    });
+  dropzone.addEventListener("dragover", (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    setDragActive(true);
+  });
+
+  dropzone.addEventListener("dragleave", (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) setDragActive(false);
+  });
+
+  dropzone.addEventListener("dragend", () => {
+    dragDepth = 0;
+    setDragActive(false);
   });
 
   dropzone.addEventListener("drop", async (event) => {
+    if (!isFileDrag(event)) return;
     event.preventDefault();
+    dragDepth = 0;
     setDragActive(false);
     if (event.dataTransfer?.files?.length) {
-      await handleSpectrumFiles(event.dataTransfer.files);
-      fileInput.value = "";
+      await onDropFiles(event.dataTransfer.files);
     }
+  });
+}
+
+function bindSpectrumDropzones() {
+  const fileInput = document.getElementById("fileInput");
+  const dropzones = [document.getElementById("fileDropzone"), document.getElementById("plotDropzone")].filter(Boolean);
+  if (!fileInput || !dropzones.length) return;
+
+  dropzones.forEach((dropzone) => {
+    bindFileDropTarget(dropzone, async (files) => {
+      await handleSpectrumFiles(files);
+      fileInput.value = "";
+    });
   });
 }
 
@@ -291,7 +316,7 @@ export function bindUi() {
     }
   });
 
-  bindSpectrumDropzone();
+  bindSpectrumDropzones();
 
   document.getElementById("projectInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.[0]) {
