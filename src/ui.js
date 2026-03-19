@@ -2,7 +2,7 @@ import { state, addSpectrum, removeSpectrum, updateSpectrum, selectSpectrum, get
 import { parseSpectrumFile } from "./parser.js";
 import { renderPlot, exportPlotPng, resetPlotZoom, applyManualAxisRanges, snapCurrentXAxisRange, fixCurrentScale, getCurrentPlotRanges } from "./plot.js";
 import { detectPeaks } from "./peaks.js";
-import { normalizeByPeakIndex, resetProcessed } from "./process.js";
+import { normalizeByPeakIndex, resetProcessed, selectRemovalPoint, clearRemovalPoint, removeSelectedSpike, undoLastSpikeRemoval } from "./process.js";
 import { saveProjectJson } from "./export.js";
 
 function setStatus(message) {
@@ -150,6 +150,40 @@ function renderPeakMenu() {
   menu.style.top = `${safeTop}px`;
 }
 
+function renderCosmicRayControls() {
+  const spectrum = getSelectedSpectrum();
+  const enabledInput = document.getElementById("cosmicRayModeInput");
+  const halfWidthInput = document.getElementById("cosmicRayHalfWidthInput");
+  const selectionText = document.getElementById("cosmicRaySelectionText");
+  const removeBtn = document.getElementById("removeCosmicRayBtn");
+  const undoBtn = document.getElementById("undoCosmicRayBtn");
+  const clearBtn = document.getElementById("clearCosmicRaySelectionBtn");
+
+  if (enabledInput) enabledInput.checked = Boolean(state.ui.cosmicRayRemoval?.enabled);
+  if (halfWidthInput) halfWidthInput.value = String(state.ui.cosmicRayRemoval?.halfWidth ?? 1);
+
+  if (!spectrum) {
+    if (selectionText) selectionText.textContent = "スペクトルを選択してください。";
+    if (removeBtn) removeBtn.disabled = true;
+    if (undoBtn) undoBtn.disabled = true;
+    if (clearBtn) clearBtn.disabled = true;
+    return;
+  }
+
+  const index = spectrum.selectedRemovalPointIndex;
+  if (Number.isInteger(index)) {
+    const x = spectrum.xProcessed[index];
+    const y = spectrum.yProcessed[index];
+    if (selectionText) selectionText.textContent = `選択中: index ${index}, x = ${Number(x).toFixed(4)}, y = ${Number(y).toFixed(4)}`;
+  } else if (selectionText) {
+    selectionText.textContent = "まだ点は選択されていません。";
+  }
+
+  if (removeBtn) removeBtn.disabled = !Number.isInteger(index);
+  if (undoBtn) undoBtn.disabled = !(spectrum.cosmicRayHistory?.length);
+  if (clearBtn) clearBtn.disabled = !Number.isInteger(index);
+}
+
 function parseOptionalNumber(inputId) {
   const input = document.getElementById(inputId);
   if (!input) return null;
@@ -293,6 +327,8 @@ function bindPeakMenu() {
 }
 
 export function bindUi() {
+  window.__plotNatsuiHandlePointSelection = handlePlotPointSelection;
+
   document.getElementById("fileInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.length) {
       await handleSpectrumFiles(event.target.files);
@@ -375,6 +411,54 @@ export function bindUi() {
     renderAll();
     await renderPlot();
     setStatus("選択スペクトルを元データに戻しました。");
+  });
+
+  document.getElementById("cosmicRayModeInput")?.addEventListener("change", (event) => {
+    state.ui.cosmicRayRemoval.enabled = event.target.checked;
+    renderCosmicRayControls();
+    setStatus(event.target.checked
+      ? "点選択モードを有効にしました。グラフ上の対象点をクリックしてください。"
+      : "点選択モードを無効にしました。");
+  });
+
+  document.getElementById("cosmicRayHalfWidthInput")?.addEventListener("change", (event) => {
+    state.ui.cosmicRayRemoval.halfWidth = Math.max(0, Math.floor(Number(event.target.value) || 0));
+    renderCosmicRayControls();
+  });
+
+  document.getElementById("removeCosmicRayBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    try {
+      const result = removeSelectedSpike(spectrum, state.ui.cosmicRayRemoval.halfWidth);
+      renderAll();
+      await renderPlot();
+      setStatus(`宇宙線由来の鋭い線を補間除去しました (index ${result.start} - ${result.end})。`);
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  document.getElementById("undoCosmicRayBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    try {
+      const result = undoLastSpikeRemoval(spectrum);
+      renderAll();
+      await renderPlot();
+      setStatus(`直前の宇宙線除去を元に戻しました (index ${result.start} - ${result.end})。`);
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  document.getElementById("clearCosmicRaySelectionBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    clearRemovalPoint(spectrum);
+    renderCosmicRayControls();
+    await renderPlot();
+    setStatus("除去対象点の選択をクリアしました。");
   });
 
   document.getElementById("exportPngBtn")?.addEventListener("click", async () => {
