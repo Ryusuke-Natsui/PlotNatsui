@@ -144,10 +144,29 @@ button:hover,
 
 .file-drop {
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
-  min-height: 96px;
+  gap: 6px;
+  min-height: 120px;
   text-align: center;
+  border-style: dashed;
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+
+.file-drop-title {
+  font-weight: 600;
+}
+
+.file-drop-subtitle {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.file-drop.drag-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  transform: translateY(-1px);
 }
 
 .file-drop input,
