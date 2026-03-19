@@ -5,6 +5,18 @@ import { detectPeaks } from "./peaks.js";
 import { normalizeByPeakIndex, resetProcessed } from "./process.js";
 import { saveProjectJson } from "./export.js";
 
+const peakMenuState = {
+  open: false,
+  spectrumId: null,
+  peakIndex: null,
+  peakNumber: null,
+  x: null,
+  y: null,
+  prominence: null,
+  clientX: 0,
+  clientY: 0,
+};
+
 function setStatus(message) {
   const el = document.getElementById("statusText");
   if (el) el.textContent = message;
@@ -17,6 +29,32 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function resetPeakMenuState() {
+  peakMenuState.open = false;
+  peakMenuState.spectrumId = null;
+  peakMenuState.peakIndex = null;
+  peakMenuState.peakNumber = null;
+  peakMenuState.x = null;
+  peakMenuState.y = null;
+  peakMenuState.prominence = null;
+}
+
+function closePeakMenu() {
+  resetPeakMenuState();
+}
+
+function openPeakMenu(detail = {}) {
+  peakMenuState.open = true;
+  peakMenuState.spectrumId = detail.spectrumId ?? null;
+  peakMenuState.peakIndex = detail.peakIndex ?? null;
+  peakMenuState.peakNumber = detail.peakNumber ?? null;
+  peakMenuState.x = detail.x ?? null;
+  peakMenuState.y = detail.y ?? null;
+  peakMenuState.prominence = detail.prominence ?? null;
+  peakMenuState.clientX = detail.clientX ?? 0;
+  peakMenuState.clientY = detail.clientY ?? 0;
 }
 
 function renderTraceList() {
@@ -58,6 +96,7 @@ function renderTraceList() {
 
     item.querySelector(".trace-select-btn")?.addEventListener("click", async () => {
       selectSpectrum(id);
+      closePeakMenu();
       renderAll();
       await renderPlot();
       setStatus("スペクトルを選択しました。");
@@ -86,6 +125,7 @@ function renderTraceList() {
 
     item.querySelector(".trace-remove-btn")?.addEventListener("click", async () => {
       removeSpectrum(id);
+      closePeakMenu();
       renderAll();
       await renderPlot();
       setStatus("スペクトルを削除しました。");
@@ -93,47 +133,45 @@ function renderTraceList() {
   });
 }
 
-function renderPeakList() {
-  const container = document.getElementById("peakList");
-  if (!container) return;
+function formatPeakMenuMeta() {
+  if (!peakMenuState.open) {
+    return "ピークをクリックするとここに情報を表示します。";
+  }
 
-  const spectrum = getSelectedSpectrum();
-  const peaks = spectrum?.detectedPeaks ?? [];
+  return [
+    `#${peakMenuState.peakNumber}`,
+    `x = ${Number(peakMenuState.x).toFixed(4)}`,
+    `y = ${Number(peakMenuState.y).toFixed(4)}`,
+    `prominence = ${Number(peakMenuState.prominence).toFixed(4)}`,
+  ].join("<br>");
+}
 
-  if (!spectrum) {
-    container.innerHTML = '<div class="empty">スペクトルを選択してください。</div>';
+function renderPeakMenu() {
+  const menu = document.getElementById("peakMenu");
+  const meta = document.getElementById("peakMenuMeta");
+  const normalizeBtn = document.getElementById("normalizePeakBtn");
+  if (!menu || !meta || !normalizeBtn) return;
+
+  meta.innerHTML = formatPeakMenuMeta();
+  normalizeBtn.disabled = !peakMenuState.open;
+
+  if (!peakMenuState.open) {
+    menu.hidden = true;
+    menu.style.left = "";
+    menu.style.top = "";
     return;
   }
 
-  if (!peaks.length) {
-    container.innerHTML = '<div class="empty">ピークはまだ検出されていません。</div>';
-    return;
-  }
+  menu.hidden = false;
+  const stage = menu.parentElement;
+  const stageRect = stage?.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth || 240;
+  const menuHeight = menu.offsetHeight || 140;
+  const safeLeft = Math.max(12, Math.min((peakMenuState.clientX - (stageRect?.left ?? 0)) + 12, (stageRect?.width ?? 0) - menuWidth - 12));
+  const safeTop = Math.max(12, Math.min((peakMenuState.clientY - (stageRect?.top ?? 0)) + 12, (stageRect?.height ?? 0) - menuHeight - 12));
 
-  container.innerHTML = peaks.map((p, idx) => `
-    <div class="peak-item">
-      <div><strong>#${idx + 1}</strong></div>
-      <div>x = ${Number(p.x).toFixed(4)}</div>
-      <div>y = ${Number(p.y).toFixed(4)}</div>
-      <div>prominence = ${Number(p.prominence).toFixed(4)}</div>
-      <button data-peak-index="${p.index}">Normalize to this peak = 1</button>
-    </div>
-  `).join("");
-
-  container.querySelectorAll("button[data-peak-index]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const peakIndex = Number(btn.dataset.peakIndex);
-      const target = getSelectedSpectrum();
-      if (!target) return;
-      try {
-        normalizeByPeakIndex(target, peakIndex);
-        await renderPlot();
-        setStatus("選択ピークを 1 に正規化しました。");
-      } catch (error) {
-        setStatus(error.message);
-      }
-    });
-  });
+  menu.style.left = `${safeLeft}px`;
+  menu.style.top = `${safeTop}px`;
 }
 
 function parseOptionalNumber(inputId) {
@@ -160,7 +198,7 @@ export function renderAll() {
   document.getElementById("offsetStepInput").value = state.ui.offsetStep;
   document.getElementById("plotHeightInput").value = state.ui.plotHeight;
   renderTraceList();
-  renderPeakList();
+  renderPeakMenu();
 }
 
 async function handleSpectrumFiles(fileList) {
@@ -182,6 +220,7 @@ async function handleProjectFile(file) {
   const text = await file.text();
   const project = JSON.parse(text);
   importProject(project);
+  closePeakMenu();
   renderAll();
   await renderPlot();
   setStatus("プロジェクトを読み込みました。");
@@ -222,6 +261,57 @@ function bindSpectrumDropzone() {
   });
 }
 
+function bindPeakMenu() {
+  const normalizeBtn = document.getElementById("normalizePeakBtn");
+  const closeBtn = document.getElementById("closePeakMenuBtn");
+  const menu = document.getElementById("peakMenu");
+  const plot = document.getElementById("plot");
+
+  normalizeBtn?.addEventListener("click", async () => {
+    const target = getSelectedSpectrum();
+    const peakIndex = peakMenuState.peakIndex;
+    if (!target || !Number.isInteger(peakIndex)) return;
+
+    try {
+      normalizeByPeakIndex(target, peakIndex);
+      closePeakMenu();
+      renderAll();
+      await renderPlot();
+      setStatus("選択ピークを 1 に正規化しました。");
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  closeBtn?.addEventListener("click", () => {
+    closePeakMenu();
+    renderPeakMenu();
+  });
+
+  plot?.addEventListener("peak-marker-click", (event) => {
+    openPeakMenu(event.detail ?? {});
+    renderPeakMenu();
+  });
+
+  plot?.addEventListener("peak-marker-clear", () => {
+    closePeakMenu();
+    renderPeakMenu();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!peakMenuState.open) return;
+    if (menu?.contains(event.target) || plot?.contains(event.target)) return;
+    closePeakMenu();
+    renderPeakMenu();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !peakMenuState.open) return;
+    closePeakMenu();
+    renderPeakMenu();
+  });
+}
+
 export function bindUi() {
   document.getElementById("fileInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.length) {
@@ -231,6 +321,7 @@ export function bindUi() {
   });
 
   bindSpectrumDropzone();
+  bindPeakMenu();
 
   document.getElementById("projectInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.[0]) {
@@ -290,8 +381,10 @@ export function bindUi() {
     const minProminence = Number(document.getElementById("prominenceInput").value) || 0;
     const minDistance = Number(document.getElementById("distanceInput").value) || 5;
     spectrum.detectedPeaks = detectPeaks(spectrum.xProcessed, spectrum.yProcessed, { minProminence, minDistance });
-    renderPeakList();
-    setStatus(`${spectrum.detectedPeaks.length} peak(s) detected.`);
+    closePeakMenu();
+    renderPeakMenu();
+    await renderPlot();
+    setStatus(`${spectrum.detectedPeaks.length} peak(s) detected. マーカーをクリックすると操作できます。`);
   });
 
   document.getElementById("resetNormalizationBtn")?.addEventListener("click", async () => {
@@ -299,7 +392,8 @@ export function bindUi() {
     if (!spectrum) return;
     resetProcessed(spectrum);
     spectrum.detectedPeaks = [];
-    renderPeakList();
+    closePeakMenu();
+    renderAll();
     await renderPlot();
     setStatus("選択スペクトルを元データに戻しました。");
   });
