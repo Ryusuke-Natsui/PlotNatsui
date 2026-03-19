@@ -9,6 +9,15 @@ function getMeasurementScale(spectrum) {
     : null;
 }
 
+
+function ensureCleanupState(spectrum) {
+  if (!spectrum) {
+    throw new Error("スペクトルが選択されていません。");
+  }
+  if (!Array.isArray(spectrum.cosmicRayHistory)) spectrum.cosmicRayHistory = [];
+  if (!Number.isInteger(spectrum.selectedRemovalPointIndex)) spectrum.selectedRemovalPointIndex = null;
+  if (!Array.isArray(spectrum.yProcessed)) spectrum.yProcessed = cloneArray(spectrum.yRaw);
+}
 export function resetProcessed(spectrum) {
   spectrum.xProcessed = cloneArray(spectrum.xRaw);
   spectrum.yProcessed = cloneArray(spectrum.yRaw);

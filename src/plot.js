@@ -84,9 +84,7 @@ function isFiniteNumber(value) {
 function countDecimals(value) {
   if (!isFiniteNumber(value)) return 0;
   const asString = String(value).toLowerCase();
-  if (asString.includes("e-")) {
-    return Number(asString.split("e-")[1]) || 0;
-  }
+  if (asString.includes("e-")) return Number(asString.split("e-")[1]) || 0;
   const parts = asString.split(".");
   return parts[1]?.length ?? 0;
 }
@@ -94,9 +92,7 @@ function countDecimals(value) {
 function formatTickValue(value, decimals) {
   if (!isFiniteNumber(value)) return "";
   const abs = Math.abs(value);
-  if ((abs >= 1e5 || (abs > 0 && abs < 1e-3))) {
-    return value.toExponential(2);
-  }
+  if (abs >= 1e5 || (abs > 0 && abs < 1e-3)) return value.toExponential(2);
   const safeDecimals = Math.min(Math.max(decimals, 0), 6);
   return Number(value.toFixed(safeDecimals)).toString();
 }
@@ -127,19 +123,12 @@ function buildAxisTypography(axisSpec, stateUi, axisKey) {
     ? Math.max(22, Math.ceil((labelLength * tickFontSize * 0.58) + (tickFontSize * 0.8)))
     : Math.max(18, Math.ceil(tickBand * 0.75));
 
-  return {
-    titleFontSize,
-    tickFontSize,
-    titleStandoff,
-    labelLength,
-    tickBand,
-  };
+  return { titleFontSize, tickFontSize, titleStandoff, labelLength, tickBand };
 }
 
 function createLayoutMargins(xTypography, yTypography) {
   const left = Math.max(96, Math.ceil((yTypography.labelLength * yTypography.tickFontSize * 0.62) + yTypography.titleFontSize + yTypography.titleStandoff + 36));
   const bottom = Math.max(90, Math.ceil(xTypography.tickBand + xTypography.titleFontSize + xTypography.titleStandoff + 34));
-
   return { l: left, r: 28, t: 28, b: bottom };
 }
 
@@ -192,11 +181,7 @@ function buildNiceAxis(range, { targetTicks = 6, paddingRatio = 0 } = {}) {
   const min = roundToStep(Math.floor(paddedMin / step) * step, step);
   const max = roundToStep(Math.ceil(paddedMax / step) * step, step);
 
-  return {
-    range: [min, max],
-    tick0: min,
-    dtick: step,
-  };
+  return { range: [min, max], tick0: min, dtick: step };
 }
 
 function getVisibleXRange(traces) {
@@ -206,8 +191,7 @@ function getVisibleXRange(traces) {
       if (isFiniteNumber(value)) values.push(value);
     });
   });
-  if (!values.length) return null;
-  return [Math.min(...values), Math.max(...values)];
+  return values.length ? [Math.min(...values), Math.max(...values)] : null;
 }
 
 function getVisibleYRange(traces, xRange = null) {
@@ -219,14 +203,11 @@ function getVisibleYRange(traces, xRange = null) {
       const x = Number(trace.x[index]);
       const y = Number(trace.y[index]);
       const inRange = !normalizedX || (isFiniteNumber(x) && x >= normalizedX[0] && x <= normalizedX[1]);
-      if (inRange && isFiniteNumber(y)) {
-        yValues.push(y);
-      }
+      if (inRange && isFiniteNumber(y)) yValues.push(y);
     }
   });
 
-  if (!yValues.length) return null;
-  return [Math.min(...yValues), Math.max(...yValues)];
+  return yValues.length ? [Math.min(...yValues), Math.max(...yValues)] : null;
 }
 
 function updateAxisRangeInputs(xRange, yRange) {
@@ -239,8 +220,7 @@ function updateAxisRangeInputs(xRange, yRange) {
 
   mappings.forEach(([id, value]) => {
     const input = document.getElementById(id);
-    if (!input) return;
-    input.value = isFiniteNumber(value) ? String(value) : "";
+    if (input) input.value = isFiniteNumber(value) ? String(value) : "";
   });
 }
 
@@ -265,14 +245,13 @@ function syncAxisControlState(resolvedViewport = null) {
 
   updateAxisRangeInputs(
     resolvedViewport?.displayXRange ?? normalizeRange(viewport.manualXRange) ?? normalizeRange(viewport.selectedXRange),
-    resolvedViewport?.displayYRange ?? normalizeRange(viewport.manualYRange)
+    resolvedViewport?.displayYRange ?? normalizeRange(viewport.manualYRange),
   );
 }
 
 function resolveViewport(traces) {
   const viewport = state.ui.plotViewport;
   const dataXRange = getVisibleXRange(traces);
-
   const requestedXRange = normalizeRange(viewport.lockXRange
     ? viewport.manualXRange
     : (viewport.manualXRange ?? viewport.selectedXRange ?? dataXRange));
@@ -283,7 +262,6 @@ function resolveViewport(traces) {
     : (dataXRange ? buildNiceAxis(dataXRange, { targetTicks: 7, paddingRatio: 0.02 }) : null);
 
   const displayXRange = normalizeRange(xAxis?.range ?? requestedXRange ?? dataXRange);
-
   const requestedYRange = normalizeRange(viewport.lockYRange ? viewport.manualYRange : null)
     ?? getVisibleYRange(traces, displayXRange)
     ?? getVisibleYRange(traces);
@@ -333,20 +311,31 @@ function storeViewportFromRelayout(eventData) {
     eventData["xaxis.range[1]"],
   ]) ?? normalizeRange(eventData["xaxis.range"]);
 
-  if (!xRange) return false;
+  const yRange = normalizeRange([
+    eventData["yaxis.range[0]"],
+    eventData["yaxis.range[1]"],
+  ]) ?? normalizeRange(eventData["yaxis.range"]);
 
-  viewport.selectedXRange = xRange;
-  if (!viewport.lockXRange) {
-    viewport.manualXRange = xRange;
+  let changed = false;
+
+  if (xRange) {
+    viewport.selectedXRange = xRange;
+    if (!viewport.lockXRange) viewport.manualXRange = xRange;
+    changed = true;
   }
-  return true;
+
+  if (yRange && !viewport.lockYRange) {
+    viewport.manualYRange = yRange;
+    changed = true;
+  }
+
+  return changed;
 }
 
 function dispatchPeakEvent(plotEl, eventName, detail = {}) {
-  plotEl.dispatchEvent(new CustomEvent(eventName, {
-    detail,
-    bubbles: true,
-  }));
+  plotEl.dispatchEvent(new CustomEvent(eventName, { detail, bubbles: true }));
+}
+
 export function setPlotPointSelectionHandler(handler) {
   pointSelectionHandler = typeof handler === "function" ? handler : null;
 }
@@ -361,31 +350,31 @@ function bindPlotInteractions(plotEl) {
     await renderPlot();
   });
 
-  plotEl.on("plotly_click", (eventData) => {
+  plotEl.on("plotly_click", async (eventData) => {
     const point = eventData?.points?.[0];
     const peakData = point?.customdata;
-    if (!peakData?.isPeakMarker) {
-      dispatchPeakEvent(plotEl, "peak-marker-clear");
+    if (peakData?.isPeakMarker) {
+      dispatchPeakEvent(plotEl, "peak-marker-click", {
+        spectrumId: peakData.spectrumId,
+        peakIndex: peakData.peakIndex,
+        peakNumber: peakData.peakNumber,
+        x: peakData.x,
+        y: peakData.y,
+        prominence: peakData.prominence,
+        clientX: eventData?.event?.clientX ?? 0,
+        clientY: eventData?.event?.clientY ?? 0,
+      });
       return;
     }
 
-    dispatchPeakEvent(plotEl, "peak-marker-click", {
-      spectrumId: peakData.spectrumId,
-      peakIndex: peakData.peakIndex,
-      peakNumber: peakData.peakNumber,
-      x: peakData.x,
-      y: peakData.y,
-      prominence: peakData.prominence,
-      clientX: eventData?.event?.clientX ?? 0,
-      clientY: eventData?.event?.clientY ?? 0,
-    });
+    dispatchPeakEvent(plotEl, "peak-marker-clear");
+    if (pointSelectionHandler) {
+      await pointSelectionHandler(eventData);
+    }
   });
 
   plotEl.on("plotly_doubleclick", () => {
     dispatchPeakEvent(plotEl, "peak-marker-clear");
-  plotEl.on("plotly_click", async (eventData) => {
-    if (!pointSelectionHandler) return;
-    await pointSelectionHandler(eventData);
   });
 
   plotEl.dataset.viewportBound = "true";
@@ -403,13 +392,9 @@ export function applyManualAxisRanges({ xRange = null, yRange = null, lockXRange
   viewport.lockXRange = Boolean(lockXRange);
   viewport.lockYRange = Boolean(lockYRange);
   viewport.snapXRange = Boolean(snapXRange);
-
-  const normalizedX = normalizeRange(xRange);
-  const normalizedY = normalizeRange(yRange);
-
-  viewport.manualXRange = normalizedX;
-  viewport.selectedXRange = normalizedX;
-  viewport.manualYRange = normalizedY;
+  viewport.manualXRange = normalizeRange(xRange);
+  viewport.selectedXRange = viewport.manualXRange;
+  viewport.manualYRange = normalizeRange(yRange);
 }
 
 export async function snapCurrentXAxisRange() {
@@ -441,24 +426,9 @@ export async function renderPlot() {
   if (!plotEl || !window.Plotly) return;
 
   const colors = getThemeColors(state.ui.theme);
-  const prepared = applyOffsets(
-    state.spectra.filter((s) => s.visible),
-    state.ui.offsetStep
-  );
+  const prepared = applyOffsets(state.spectra.filter((s) => s.visible), state.ui.offsetStep);
+  const selectedSpectrum = getSelectedSpectrum();
 
-  const traces = prepared.map((s, index) => ({
-    x: s.xPlot,
-    y: s.yPlot,
-    type: "scatter",
-    mode: "lines",
-    name: s.name,
-    line: {
-      color: s.color || defaultColor(index),
-      width: Number(s.lineWidth) || 2,
-      dash: s.lineStyle || "solid",
-    },
-    hovertemplate: "%{x}<br>%{y}<extra>%{fullData.name}</extra>",
-  }));
   const traces = prepared.flatMap((s, index) => {
     const lineTrace = {
       x: s.xPlot,
@@ -473,11 +443,11 @@ export async function renderPlot() {
       line: {
         color: s.color || defaultColor(index),
         width: Number(s.lineWidth) || 2,
+        dash: s.lineStyle || "solid",
       },
       hovertemplate: "%{x}<br>%{y}<extra>%{fullData.name}</extra>",
     };
 
-    const selectedSpectrum = getSelectedSpectrum();
     const selectedIndex = selectedSpectrum?.id === s.id ? selectedSpectrum.selectedRemovalPointIndex : null;
     if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= s.xPlot.length) {
       return [lineTrace];
@@ -510,7 +480,6 @@ export async function renderPlot() {
     ];
   });
 
-  const selectedSpectrum = getSelectedSpectrum();
   const selectedPrepared = prepared.find((s) => s.id === selectedSpectrum?.id);
   const selectedColor = selectedPrepared
     ? (selectedPrepared.color || defaultColor(prepared.findIndex((s) => s.id === selectedPrepared.id)))
@@ -546,8 +515,8 @@ export async function renderPlot() {
     });
   }
 
-  const resolvedViewport = resolveViewport(traces);
-
+  const viewportTraces = traces.filter((trace) => Array.isArray(trace.x) && Array.isArray(trace.y) && trace.meta?.traceRole !== "selected-removal-point");
+  const resolvedViewport = resolveViewport(viewportTraces);
   const xTypography = buildAxisTypography(resolvedViewport.xAxis, state.ui, "x");
   const yTypography = buildAxisTypography(resolvedViewport.yAxis, state.ui, "y");
 
@@ -571,18 +540,14 @@ export async function renderPlot() {
       bgcolor: colors.legendBg,
       bordercolor: colors.axis,
       borderwidth: 1,
-      font: {
-        size: 13,
-      },
+      font: { size: 13 },
     },
     margin: createLayoutMargins(xTypography, yTypography),
     height: Number(state.ui.plotHeight) || 560,
     hoverlabel: {
       bgcolor: colors.paper,
       bordercolor: colors.axis,
-      font: {
-        color: colors.text,
-      },
+      font: { color: colors.text },
     },
   };
 
@@ -598,8 +563,8 @@ export async function renderPlot() {
 
   isApplyingViewport = true;
   await window.Plotly.react(plotEl, traces, layout, config);
-  plotEl.__currentTraces = traces;
   isApplyingViewport = false;
+  plotEl.__currentTraces = traces;
   bindPlotInteractions(plotEl);
   syncAxisControlState(resolvedViewport);
 }

@@ -58,8 +58,16 @@
               <button id="resetZoomBtn" type="button" disabled>Reset zoom</button>
             </div>
           </div>
-          <div id="plotDropzone" class="plot-dropzone">
+          <div id="plotDropzone" class="plot-dropzone plot-stage">
             <div id="plot" class="plot"></div>
+            <div id="peakMenu" class="peak-menu" hidden>
+              <div class="peak-menu-title">Peak actions</div>
+              <div id="peakMenuMeta" class="peak-menu-meta">ピークをクリックするとここに情報を表示します。</div>
+              <div class="peak-menu-actions">
+                <button id="normalizePeakBtn" type="button">Normalize to 1</button>
+                <button id="closePeakMenuBtn" type="button">Close</button>
+              </div>
+            </div>
             <div class="plot-drop-overlay" aria-hidden="true">
               <span class="plot-drop-title">入力データをここにドロップ</span>
               <span class="plot-drop-subtitle">txt / csv / tsv / dat をそのまま追加できます</span>
