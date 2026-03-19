@@ -151,25 +151,6 @@
         </section>
 
         <section class="card">
-          <h2>Cosmic ray cleanup</h2>
-          <p class="hint">選択中スペクトルに対して点選択モードを有効にし、グラフ上で宇宙線由来の鋭い線をクリックして補間除去します。</p>
-          <label class="checkbox-row">
-            <input id="cosmicRayModeInput" type="checkbox" />
-            <span>点選択モードを有効にする</span>
-          </label>
-          <label>
-            補間する半幅 (points)
-            <input id="cosmicRayHalfWidthInput" type="number" min="0" step="1" value="1" />
-          </label>
-          <div id="cosmicRaySelectionText" class="hint">まだ点は選択されていません。</div>
-          <div class="button-row">
-            <button id="removeCosmicRayBtn" type="button">Remove selected spike</button>
-            <button id="undoCosmicRayBtn" type="button">Undo last removal</button>
-          </div>
-          <button id="clearCosmicRaySelectionBtn" type="button">Clear selected point</button>
-        </section>
-
-        <section class="card">
           <h2>Next extensions</h2>
           <ul class="checklist">
             <li>Baseline correction</li>
