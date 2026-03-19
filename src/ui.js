@@ -1,6 +1,6 @@
 import { state, addSpectrum, removeSpectrum, updateSpectrum, selectSpectrum, getSelectedSpectrum, importProject } from "./state.js";
 import { parseSpectrumFile } from "./parser.js";
-import { renderPlot, exportPlotPng } from "./plot.js";
+import { renderPlot, exportPlotPng, resetPlotZoom, applyManualAxisRanges, snapCurrentXAxisRange, fixCurrentScale, getCurrentPlotRanges } from "./plot.js";
 import { detectPeaks } from "./peaks.js";
 import { normalizeByPeakIndex, resetProcessed } from "./process.js";
 import { saveProjectJson } from "./export.js";
@@ -136,6 +136,22 @@ function renderPeakList() {
   });
 }
 
+function parseOptionalNumber(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return null;
+  const value = input.value.trim();
+  if (!value) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function getRangeFromInputs(minId, maxId) {
+  const min = parseOptionalNumber(minId);
+  const max = parseOptionalNumber(maxId);
+  if (min === null || max === null || min === max) return null;
+  return min < max ? [min, max] : [max, min];
+}
+
 export function renderAll() {
   document.body.classList.toggle("dark", state.ui.theme === "dark");
   document.getElementById("xLabelInput").value = state.ui.xLabel;
@@ -221,6 +237,36 @@ export function bindUi() {
       await handleProjectFile(event.target.files[0]);
       event.target.value = "";
     }
+  });
+
+  document.getElementById("resetZoomBtn")?.addEventListener("click", async () => {
+    await resetPlotZoom();
+    setStatus("ズームをリセットしました。");
+  });
+
+  document.getElementById("applyAxisRangeBtn")?.addEventListener("click", async () => {
+    const xRange = getRangeFromInputs("xRangeMinInput", "xRangeMaxInput");
+    const yRange = getRangeFromInputs("yRangeMinInput", "yRangeMaxInput");
+    const lockXRange = document.getElementById("lockXRangeInput")?.checked ?? false;
+    const lockYRange = document.getElementById("lockYRangeInput")?.checked ?? false;
+    const snapXRange = document.getElementById("snapXRangeInput")?.checked ?? true;
+
+    applyManualAxisRanges({ xRange, yRange, lockXRange, lockYRange, snapXRange });
+    await renderPlot();
+    setStatus("数値指定の表示範囲を適用しました。");
+  });
+
+  document.getElementById("snapXAxisBtn")?.addEventListener("click", async () => {
+    await snapCurrentXAxisRange();
+    setStatus("現在の x 表示範囲を切りのいい目盛りに合わせました。");
+  });
+
+  document.getElementById("fixScaleBtn")?.addEventListener("click", async () => {
+    await fixCurrentScale();
+    const { xRange, yRange } = getCurrentPlotRanges();
+    document.getElementById("lockXRangeInput").checked = Boolean(xRange);
+    document.getElementById("lockYRangeInput").checked = Boolean(yRange);
+    setStatus("現在の表示範囲を固定スケールとして保存しました。");
   });
 
   document.getElementById("applyViewBtn")?.addEventListener("click", async () => {

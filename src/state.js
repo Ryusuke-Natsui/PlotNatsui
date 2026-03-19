@@ -7,6 +7,14 @@ export const state = {
     theme: "light",
     offsetStep: 0,
     plotHeight: 560,
+    plotViewport: {
+      selectedXRange: null,
+      manualXRange: null,
+      manualYRange: null,
+      lockXRange: false,
+      lockYRange: false,
+      snapXRange: true,
+    },
   },
 };
 
@@ -49,5 +57,12 @@ export function exportProject() {
 export function importProject(project) {
   state.spectra = project.spectra ?? [];
   state.selectedSpectrumId = project.selectedSpectrumId ?? state.spectra[0]?.id ?? null;
-  state.ui = { ...state.ui, ...(project.ui ?? {}) };
+  state.ui = {
+    ...state.ui,
+    ...(project.ui ?? {}),
+    plotViewport: {
+      ...state.ui.plotViewport,
+      ...(project.ui?.plotViewport ?? {}),
+    },
+  };
 }
