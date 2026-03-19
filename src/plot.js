@@ -47,7 +47,7 @@ function createAxisConfig(title, colors) {
     showline: true,
     linecolor: colors.axis,
     linewidth: 3,
-    mirror: true,
+    mirror: "allticks",
     ticks: "inside",
     ticklen: 12,
     tickwidth: 3,
