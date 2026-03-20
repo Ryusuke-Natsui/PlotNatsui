@@ -529,7 +529,7 @@ export async function renderPlot() {
     },
     xaxis: createAxisConfig(state.ui.xLabel, colors, xTypography, xTypography.titleStandoff),
     yaxis: createAxisConfig(state.ui.yLabel, colors, yTypography, yTypography.titleStandoff),
-    dragmode: "zoom",
+    dragmode: "pan",
     showlegend: true,
     legend: {
       orientation: "v",
@@ -557,7 +557,7 @@ export async function renderPlot() {
   const config = {
     responsive: true,
     displaylogo: false,
-    modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
+    modeBarButtonsToRemove: ["zoom2d", "lasso2d", "select2d", "autoScale2d"],
     scrollZoom: true,
   };
 
