@@ -92,6 +92,55 @@ html, body {
   font-size: 1rem;
 }
 
+.accordion-card {
+  padding-top: 10px;
+}
+
+.accordion-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-weight: 700;
+}
+
+.accordion-toggle:hover {
+  border-color: transparent;
+}
+
+.accordion-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1rem;
+}
+
+.accordion-caret {
+  width: 0;
+  height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 8px solid currentColor;
+  transition: transform 0.18s ease;
+}
+
+.accordion-toggle[aria-expanded="true"] .accordion-caret {
+  transform: rotate(90deg);
+}
+
+.accordion-content {
+  padding-top: 2px;
+}
+
+.accordion-content[hidden] {
+  display: none;
+}
+
 .plot-card {
   padding: 18px;
   background: #ffffff;
