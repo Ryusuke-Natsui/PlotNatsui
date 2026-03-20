@@ -519,6 +519,29 @@ function bindSpectrumDropzones() {
   });
 }
 
+
+function bindRightPanelAccordions() {
+  document.querySelectorAll('[data-accordion]').forEach((section, index) => {
+    const toggle = section.querySelector('.accordion-toggle');
+    const content = section.querySelector('.accordion-content');
+    if (!toggle || !content) return;
+
+    const contentId = content.id || `accordion-content-${index + 1}`;
+    content.id = contentId;
+    toggle.setAttribute('aria-controls', contentId);
+
+    const isOpen = section.hasAttribute('default-open');
+    toggle.setAttribute('aria-expanded', String(isOpen));
+    content.hidden = !isOpen;
+
+    toggle.addEventListener('click', () => {
+      const nextOpen = toggle.getAttribute('aria-expanded') !== 'true';
+      toggle.setAttribute('aria-expanded', String(nextOpen));
+      content.hidden = !nextOpen;
+    });
+  });
+}
+
 function bindPeakMenu() {
   const normalizeBtn = document.getElementById("normalizePeakBtn");
   const closeBtn = document.getElementById("closePeakMenuBtn");
@@ -597,6 +620,7 @@ export function bindUi() {
   setPlotPointSelectionHandler(handlePlotPointSelection);
   bindPeakMenu();
   bindSpectrumDropzones();
+  bindRightPanelAccordions();
 
   document.getElementById("fileInput")?.addEventListener("change", async (event) => {
     if (event.target.files?.length) {
