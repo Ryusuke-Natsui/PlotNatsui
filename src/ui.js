@@ -283,43 +283,51 @@ function renderTraceList() {
     `).join("");
 
     return `
-      <div class="trace-item" data-trace-id="${s.id}">
+      <article class="trace-item ${state.selectedSpectrumId === s.id ? "is-selected" : ""}" data-trace-id="${s.id}">
         <div class="trace-head">
-          <button class="trace-select-btn" type="button">${state.selectedSpectrumId === s.id ? "Selected" : "Select"}</button>
-          <span class="badge">${s.metadata?.pointCount ?? 0} pts</span>
+          <div class="trace-title-group">
+            <div class="trace-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</div>
+            <div class="trace-meta">
+              <span class="badge">${s.metadata?.pointCount ?? 0} pts</span>
+              ${s.measurementTimeSeconds ? `<span class="badge badge-soft">${Number(s.measurementTimeSeconds).toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1')} s</span>` : ""}
+            </div>
+          </div>
+          <button class="trace-select-btn" type="button">${state.selectedSpectrumId === s.id ? "Selected" : "Focus"}</button>
         </div>
-        <div class="trace-name">${escapeHtml(s.name)}</div>
-        <div class="trace-row">
-          <label><input type="checkbox" class="trace-visible" ${s.visible ? "checked" : ""} /> show</label>
+        <div class="trace-row trace-row-main">
+          <label class="checkbox-row trace-visibility-toggle"><input type="checkbox" class="trace-visible" ${s.visible ? "checked" : ""} /><span>Visible on plot</span></label>
+          <button class="trace-remove-btn trace-remove-btn-inline" type="button">Remove</button>
+        </div>
+        <label class="trace-field trace-rename-field">
+          <span class="trace-field-label">Display name</span>
           <input type="text" class="trace-rename" value="${escapeHtml(s.name)}" />
-          <button class="trace-remove-btn" type="button">Remove</button>
-        </div>
+        </label>
         <div class="trace-controls trace-controls-extended">
-          <label>
-            Color
+          <label class="trace-field trace-field-wide">
+            <span class="trace-field-label">Color</span>
             <div class="trace-color-row">
               <input type="color" class="trace-color-picker" value="${escapeHtml(fallbackColor)}" />
               <input type="text" class="trace-color-text" value="${escapeHtml(fallbackColor)}" placeholder="#2563eb" />
             </div>
           </label>
-          <label>
-            Line style
+          <label class="trace-field">
+            <span class="trace-field-label">Line style</span>
             <select class="trace-line-style">${styleOptions}</select>
           </label>
-          <label>
-            Line width
+          <label class="trace-field">
+            <span class="trace-field-label">Line width</span>
             <input type="number" class="trace-width" min="1" step="0.5" value="${Number(s.lineWidth) || 2}" />
           </label>
-          <label>
-            Offset
+          <label class="trace-field">
+            <span class="trace-field-label">Offset</span>
             <input type="number" class="trace-offset" step="0.1" value="${Number(s.offset) || 0}" />
           </label>
-          <label>
-            Measurement time (s)
+          <label class="trace-field trace-field-wide">
+            <span class="trace-field-label">Measurement time (s)</span>
             <input type="number" class="trace-measurement-time" min="0" step="0.001" placeholder="counts only" value="${s.measurementTimeSeconds ?? ""}" />
           </label>
         </div>
-      </div>
+      </article>
     `;
   }).join("");
 
