@@ -204,6 +204,34 @@
 
         <section class="card accordion-card" data-accordion default-open>
           <button class="accordion-toggle" type="button" aria-expanded="true">
+            <span class="accordion-title"><span class="accordion-caret" aria-hidden="true"></span><span>Background subtraction</span></span>
+          </button>
+          <div class="accordion-content">
+            <p class="hint">まずグラフをズームして対象の x 範囲を決めてください。定数補正はその表示範囲へ指定値を引き、線形補正は同じ表示範囲を対象にして、グラフ上のドラッグで近似に使う区間を追加/除外できます。</p>
+            <div id="constantRangeText" class="hint">現在の x 範囲: 未設定</div>
+            <label>
+              差し引く定数
+              <input id="constantBackgroundValueInput" type="number" step="any" value="0" />
+            </label>
+            <div class="button-row">
+              <button id="applyConstantBackgroundBtn" type="button">Apply constant background</button>
+              <button id="clearBackgroundBtn" type="button">Clear background</button>
+            </div>
+            <hr class="section-divider" />
+            <div id="linearTargetRangeText" class="hint">線形補正対象: 未設定</div>
+            <div id="linearFitRangesText" class="hint">近似に使う区間: まだ選択されていません</div>
+            <div id="linearSelectionModeText" class="hint">開始後にグラフ上でドラッグして近似区間を編集</div>
+            <div class="button-row">
+              <button id="startLinearBackgroundBtn" type="button">Start linear background</button>
+              <button id="stopLinearBackgroundBtn" type="button">Stop selection</button>
+              <button id="clearLinearSelectionBtn" type="button">Clear fit ranges</button>
+            </div>
+            <p class="hint">左から右へドラッグすると近似に使う領域を追加し、右から左へドラッグすると既存の近似領域から除外します。</p>
+          </div>
+        </section>
+
+        <section class="card accordion-card" data-accordion default-open>
+          <button class="accordion-toggle" type="button" aria-expanded="true">
             <span class="accordion-title"><span class="accordion-caret" aria-hidden="true"></span><span>Cosmic ray cleanup</span></span>
           </button>
           <div class="accordion-content">

@@ -573,3 +573,23 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 12px;
 }
+
+
+.section-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+
+.plot-selection-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  cursor: crosshair;
+}
+
+.plot-selection-overlay.is-active {
+  pointer-events: auto;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 3%, transparent), color-mix(in srgb, var(--accent) 1%, transparent));
+}

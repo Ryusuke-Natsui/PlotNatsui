@@ -3,6 +3,7 @@ import { applyOffsets } from "./process.js";
 
 let isApplyingViewport = false;
 let pointSelectionHandler = null;
+let backgroundRangeSelectionHandler = null;
 
 function getThemeColors(theme) {
   return theme === "dark"
@@ -353,6 +354,149 @@ export function setPlotPointSelectionHandler(handler) {
   pointSelectionHandler = typeof handler === "function" ? handler : null;
 }
 
+export function setPlotBackgroundRangeSelectionHandler(handler) {
+  backgroundRangeSelectionHandler = typeof handler === 'function' ? handler : null;
+}
+
+
+function getPlotInteractionOverlay(plotEl) {
+  const stage = plotEl?.closest('.plot-stage');
+  if (!stage) return null;
+  let overlay = stage.querySelector('.plot-selection-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'plot-selection-overlay';
+    overlay.hidden = true;
+    stage.appendChild(overlay);
+  }
+  return overlay;
+}
+
+function updateBackgroundSelectionOverlay(plotEl) {
+  const overlay = getPlotInteractionOverlay(plotEl);
+  if (!overlay) return;
+  const active = Boolean(state.ui.backgroundSelection?.enabled);
+  overlay.hidden = !active;
+  overlay.classList.toggle('is-active', active);
+}
+
+function extractPlotAreaBounds(plotEl) {
+  const fullLayout = plotEl?._fullLayout;
+  if (!fullLayout) return null;
+  const left = Number(fullLayout.margin?.l) || 0;
+  const top = Number(fullLayout.margin?.t) || 0;
+  const width = Number(fullLayout._size?.w) || 0;
+  const height = Number(fullLayout._size?.h) || 0;
+  if (!width || !height) return null;
+  return { left, top, width, height };
+}
+
+function bindBackgroundSelectionInteractions(plotEl) {
+  if (plotEl.dataset.backgroundSelectionBound === 'true') return;
+  const overlay = getPlotInteractionOverlay(plotEl);
+  if (!overlay) return;
+
+  let dragState = null;
+  const finishSelection = async (clientX, shouldApply = true) => {
+    if (!dragState) return;
+    const fullLayout = plotEl._fullLayout;
+    const xaxis = fullLayout?.xaxis;
+    const bounds = extractPlotAreaBounds(plotEl);
+    const plotRect = plotEl.getBoundingClientRect();
+    const relativeEnd = clientX - plotRect.left;
+    const clampedEnd = Math.min(Math.max(relativeEnd, bounds.left), bounds.left + bounds.width);
+    const x0 = Number(xaxis.p2l(dragState.startPixel - bounds.left));
+    const x1 = Number(xaxis.p2l(clampedEnd - bounds.left));
+
+    state.ui.backgroundSelection.startX = null;
+    state.ui.backgroundSelection.currentX = null;
+
+    dragState = null;
+
+    if (shouldApply && backgroundRangeSelectionHandler && Number.isFinite(x0) && Number.isFinite(x1) && x0 !== x1) {
+      await backgroundRangeSelectionHandler({ range: [x0, x1], mode: x1 >= x0 ? 'include' : 'exclude' });
+    } else {
+      await renderPlot();
+    }
+  };
+
+  overlay.addEventListener('pointerdown', (event) => {
+    if (!state.ui.backgroundSelection?.enabled) return;
+    const xaxis = plotEl._fullLayout?.xaxis;
+    const bounds = extractPlotAreaBounds(plotEl);
+    if (!xaxis || !bounds) return;
+    const plotRect = plotEl.getBoundingClientRect();
+    const relativeX = event.clientX - plotRect.left;
+    const clampedX = Math.min(Math.max(relativeX, bounds.left), bounds.left + bounds.width);
+    dragState = { startPixel: clampedX, pointerId: event.pointerId };
+    state.ui.backgroundSelection.startX = Number(xaxis.p2l(clampedX - bounds.left));
+    state.ui.backgroundSelection.currentX = state.ui.backgroundSelection.startX;
+    overlay.setPointerCapture(event.pointerId);
+    renderPlot();
+    event.preventDefault();
+  });
+
+  overlay.addEventListener('pointermove', async (event) => {
+    if (!dragState || !state.ui.backgroundSelection?.enabled) return;
+    const xaxis = plotEl._fullLayout?.xaxis;
+    const bounds = extractPlotAreaBounds(plotEl);
+    if (!xaxis || !bounds) return;
+    const plotRect = plotEl.getBoundingClientRect();
+    const relativeX = event.clientX - plotRect.left;
+    const clampedX = Math.min(Math.max(relativeX, bounds.left), bounds.left + bounds.width);
+    state.ui.backgroundSelection.currentX = Number(xaxis.p2l(clampedX - bounds.left));
+    await renderPlot();
+    event.preventDefault();
+  });
+
+  overlay.addEventListener('pointerup', async (event) => {
+    if (dragState?.pointerId !== event.pointerId) return;
+    if (overlay.hasPointerCapture(event.pointerId)) overlay.releasePointerCapture(event.pointerId);
+    await finishSelection(event.clientX, true);
+    event.preventDefault();
+  });
+
+  overlay.addEventListener('pointercancel', async (event) => {
+    if (dragState?.pointerId !== event.pointerId) return;
+    if (overlay.hasPointerCapture(event.pointerId)) overlay.releasePointerCapture(event.pointerId);
+    await finishSelection(event.clientX, false);
+    event.preventDefault();
+  });
+
+  plotEl.dataset.backgroundSelectionBound = 'true';
+}
+
+function createBackgroundShapes(selectedPrepared, displayYRange) {
+  if (!selectedPrepared) return [];
+  const background = selectedPrepared.backgroundCorrection;
+  const shapes = [];
+
+  if (background?.constant?.range && background.mode === 'constant') {
+    shapes.push({ type: 'rect', xref: 'x', yref: 'paper', x0: background.constant.range[0], x1: background.constant.range[1], y0: 0, y1: 1, fillcolor: 'rgba(37,99,235,0.08)', line: { color: 'rgba(37,99,235,0.4)', dash: 'dot' } });
+  }
+
+  if (background?.linear?.targetRange && background.mode === 'linear') {
+    shapes.push({ type: 'rect', xref: 'x', yref: 'paper', x0: background.linear.targetRange[0], x1: background.linear.targetRange[1], y0: 0, y1: 1, fillcolor: 'rgba(16,185,129,0.08)', line: { color: 'rgba(16,185,129,0.35)', dash: 'dot' } });
+    (background.linear.fitRanges ?? []).forEach((range) => {
+      shapes.push({ type: 'rect', xref: 'x', yref: 'paper', x0: range[0], x1: range[1], y0: 0, y1: 1, fillcolor: 'rgba(16,185,129,0.18)', line: { color: 'rgba(16,185,129,0.55)', width: 1 } });
+    });
+    const [slope, intercept] = background.linear.coefficients ?? [];
+    if (Number.isFinite(slope) && Number.isFinite(intercept) && background.linear.targetRange) {
+      const [start, end] = background.linear.targetRange;
+      shapes.push({ type: 'line', xref: 'x', yref: 'y', x0: start, x1: end, y0: (slope * start) + intercept, y1: (slope * end) + intercept, line: { color: 'rgba(234,88,12,0.9)', width: 2, dash: 'dash' } });
+    }
+  }
+
+  const selectionStart = state.ui.backgroundSelection?.startX;
+  const selectionCurrent = state.ui.backgroundSelection?.currentX;
+  if (state.ui.backgroundSelection?.enabled && Number.isFinite(selectionStart) && Number.isFinite(selectionCurrent) && selectionStart !== selectionCurrent) {
+    const include = selectionCurrent >= selectionStart;
+    shapes.push({ type: 'rect', xref: 'x', yref: 'paper', x0: Math.min(selectionStart, selectionCurrent), x1: Math.max(selectionStart, selectionCurrent), y0: 0, y1: 1, fillcolor: include ? 'rgba(16,185,129,0.22)' : 'rgba(239,68,68,0.18)', line: { color: include ? 'rgba(16,185,129,0.85)' : 'rgba(239,68,68,0.85)', dash: 'dash' } });
+  }
+
+  return shapes;
+}
+
 function bindPlotInteractions(plotEl) {
   if (plotEl.dataset.viewportBound === "true") return;
 
@@ -534,6 +678,7 @@ export async function renderPlot() {
   const yTypography = buildAxisTypography(resolvedViewport.yAxis, state.ui, "y");
 
   const layout = {
+    shapes: createBackgroundShapes(selectedPrepared, resolvedViewport.displayYRange),
     paper_bgcolor: colors.paper,
     plot_bgcolor: colors.plot,
     font: {
@@ -581,6 +726,8 @@ export async function renderPlot() {
   isApplyingViewport = false;
   plotEl.__currentTraces = traces;
   bindPlotInteractions(plotEl);
+  bindBackgroundSelectionInteractions(plotEl);
+  updateBackgroundSelectionOverlay(plotEl);
   syncAxisControlState(resolvedViewport);
 }
 

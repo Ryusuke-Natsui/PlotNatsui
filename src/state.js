@@ -8,6 +8,18 @@ function normalizeSpectrumState(spectrum) {
       ? spectrum.selectedRemovalPointIndex
       : null,
     cosmicRayHistory: Array.isArray(spectrum.cosmicRayHistory) ? spectrum.cosmicRayHistory : [],
+    backgroundCorrection: {
+      mode: spectrum.backgroundCorrection?.mode ?? 'none',
+      constant: {
+        range: Array.isArray(spectrum.backgroundCorrection?.constant?.range) ? [...spectrum.backgroundCorrection.constant.range] : null,
+        value: Number.isFinite(Number(spectrum.backgroundCorrection?.constant?.value)) ? Number(spectrum.backgroundCorrection.constant.value) : 0,
+      },
+      linear: {
+        targetRange: Array.isArray(spectrum.backgroundCorrection?.linear?.targetRange) ? [...spectrum.backgroundCorrection.linear.targetRange] : null,
+        fitRanges: Array.isArray(spectrum.backgroundCorrection?.linear?.fitRanges) ? spectrum.backgroundCorrection.linear.fitRanges.map((range) => [...range]) : [],
+        coefficients: Array.isArray(spectrum.backgroundCorrection?.linear?.coefficients) ? [...spectrum.backgroundCorrection.linear.coefficients] : null,
+      },
+    },
   };
 }
 
@@ -35,6 +47,12 @@ export const state = {
     cosmicRayRemoval: {
       enabled: false,
       halfWidth: 1,
+    },
+    backgroundSelection: {
+      enabled: false,
+      mode: 'include',
+      startX: null,
+      currentX: null,
     },
   },
 };
@@ -76,7 +94,7 @@ export function exportProject() {
 }
 
 export function importProject(project) {
-  state.spectra = (project.spectra ?? []).map((spectrum) => ({
+  state.spectra = (project.spectra ?? []).map((spectrum) => normalizeSpectrumState({
     visible: true,
     color: "",
     lineStyle: "solid",
@@ -100,6 +118,10 @@ export function importProject(project) {
     cosmicRayRemoval: {
       ...state.ui.cosmicRayRemoval,
       ...(project.ui?.cosmicRayRemoval ?? {}),
+    },
+    backgroundSelection: {
+      ...state.ui.backgroundSelection,
+      ...(project.ui?.backgroundSelection ?? {}),
     },
   };
 }

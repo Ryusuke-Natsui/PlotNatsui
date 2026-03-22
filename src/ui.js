@@ -16,6 +16,7 @@ import {
   snapCurrentXAxisRange,
   fixCurrentScale,
   setPlotPointSelectionHandler,
+  setPlotBackgroundRangeSelectionHandler,
 } from "./plot.js";
 import { detectPeaks } from "./peaks.js";
 import {
@@ -26,6 +27,12 @@ import {
   clearRemovalPoint,
   removeSelectedSpike,
   undoLastSpikeRemoval,
+  setConstantBackground,
+  configureLinearBackground,
+  updateLinearBackgroundSelection,
+  clearLinearBackgroundSelection,
+  clearBackgroundCorrection,
+  ensureSpectrumProcessingState,
 } from "./process.js";
 import { saveProjectJson } from "./export.js";
 
@@ -215,6 +222,72 @@ function renderLabelControls() {
   if (xLabelInput) xLabelInput.disabled = state.ui.xLabelPreset !== "custom";
   if (yLabelInput) yLabelInput.disabled = hasMeasurementTime || state.ui.yLabelPreset !== "custom";
   if (yPresetInput) yPresetInput.disabled = hasMeasurementTime;
+}
+
+
+function formatRange(range) {
+  return Array.isArray(range) && range.length === 2
+    ? `${Number(range[0]).toFixed(2)} - ${Number(range[1]).toFixed(2)}`
+    : '未設定';
+}
+
+function renderBackgroundControls() {
+  const spectrum = getSelectedSpectrum();
+  const constantRangeText = document.getElementById('constantRangeText');
+  const constantValueInput = document.getElementById('constantBackgroundValueInput');
+  const linearTargetText = document.getElementById('linearTargetRangeText');
+  const linearFitText = document.getElementById('linearFitRangesText');
+  const linearSelectionMode = document.getElementById('linearSelectionModeText');
+  const applyConstantBtn = document.getElementById('applyConstantBackgroundBtn');
+  const startLinearBtn = document.getElementById('startLinearBackgroundBtn');
+  const clearLinearBtn = document.getElementById('clearLinearSelectionBtn');
+  const clearBackgroundBtn = document.getElementById('clearBackgroundBtn');
+
+  if (!spectrum) {
+    if (constantRangeText) constantRangeText.textContent = 'スペクトルを選択してください。';
+    if (linearTargetText) linearTargetText.textContent = 'スペクトルを選択してください。';
+    if (linearFitText) linearFitText.textContent = 'スペクトルを選択してください。';
+    [applyConstantBtn, startLinearBtn, clearLinearBtn, clearBackgroundBtn].forEach((btn) => { if (btn) btn.disabled = true; });
+    return;
+  }
+
+  ensureSpectrumProcessingState(spectrum);
+  const selectedRange = state.ui.plotViewport.selectedXRange;
+  const background = spectrum.backgroundCorrection;
+  if (constantRangeText) constantRangeText.textContent = `現在の x 範囲: ${formatRange(selectedRange)}`;
+  if (constantValueInput && document.activeElement !== constantValueInput) {
+    constantValueInput.value = String(background.constant?.value ?? 0);
+  }
+  if (linearTargetText) linearTargetText.textContent = `線形補正対象: ${formatRange(background.linear?.targetRange)}`;
+  if (linearFitText) {
+    const fitRanges = background.linear?.fitRanges?.length
+      ? background.linear.fitRanges.map((range) => formatRange(range)).join(', ')
+      : 'まだ選択されていません';
+    linearFitText.textContent = `近似に使う区間: ${fitRanges}`;
+  }
+  if (linearSelectionMode) {
+    linearSelectionMode.textContent = state.ui.backgroundSelection?.enabled
+      ? 'ドラッグ操作中: 左→右で追加、右→左で除外'
+      : '開始後にグラフ上でドラッグして近似区間を編集';
+  }
+
+  if (applyConstantBtn) applyConstantBtn.disabled = !Array.isArray(selectedRange);
+  if (startLinearBtn) startLinearBtn.disabled = !Array.isArray(selectedRange);
+  if (clearLinearBtn) clearLinearBtn.disabled = !(background.linear?.fitRanges?.length);
+  if (clearBackgroundBtn) clearBackgroundBtn.disabled = background.mode === 'none';
+}
+
+async function handleBackgroundRangeSelection({ range, mode }) {
+  const spectrum = getSelectedSpectrum();
+  if (!spectrum) return;
+  try {
+    updateLinearBackgroundSelection(spectrum, range, mode);
+    renderAll();
+    await renderPlot();
+    setStatus(mode === 'include' ? '線形近似に使う区間を追加しました。' : '線形近似に使わない区間を除外しました。');
+  } catch (error) {
+    setStatus(error.message);
+  }
 }
 
 function renderCosmicRayControls() {
@@ -441,6 +514,7 @@ export function renderAll() {
   renderPeakMenu();
   renderPeakList();
   renderCosmicRayControls();
+  renderBackgroundControls();
 }
 
 async function handleSpectrumFiles(fileList) {
@@ -626,6 +700,7 @@ async function handlePlotPointSelection(eventData) {
 
 export function bindUi() {
   setPlotPointSelectionHandler(handlePlotPointSelection);
+  setPlotBackgroundRangeSelectionHandler(handleBackgroundRangeSelection);
   bindPeakMenu();
   bindSpectrumDropzones();
   bindRightPanelAccordions();
@@ -741,6 +816,74 @@ export function bindUi() {
     await renderPlot();
     setStatus("選択スペクトルの正規化をリセットしました。");
   });
+  document.getElementById("applyConstantBackgroundBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    const range = state.ui.plotViewport.selectedXRange;
+    const value = Number(document.getElementById("constantBackgroundValueInput")?.value);
+    try {
+      setConstantBackground(spectrum, range, value);
+      closePeakMenu();
+      renderAll();
+      await renderPlot();
+      setStatus("指定範囲に定数バックグラウンドを適用しました。");
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  document.getElementById("startLinearBackgroundBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    const range = state.ui.plotViewport.selectedXRange;
+    try {
+      configureLinearBackground(spectrum, range);
+      state.ui.backgroundSelection.enabled = true;
+      state.ui.backgroundSelection.startX = null;
+      state.ui.backgroundSelection.currentX = null;
+      closePeakMenu();
+      renderAll();
+      await renderPlot();
+      setStatus("線形バックグラウンド対象範囲を設定しました。グラフ上をドラッグして近似区間を追加/除外してください。");
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  document.getElementById("stopLinearBackgroundBtn")?.addEventListener("click", async () => {
+    state.ui.backgroundSelection.enabled = false;
+    state.ui.backgroundSelection.startX = null;
+    state.ui.backgroundSelection.currentX = null;
+    renderAll();
+    await renderPlot();
+    setStatus("線形バックグラウンド区間のドラッグ選択を終了しました。");
+  });
+
+  document.getElementById("clearLinearSelectionBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    try {
+      clearLinearBackgroundSelection(spectrum);
+      renderAll();
+      await renderPlot();
+      setStatus("線形近似に使う区間をクリアしました。");
+    } catch (error) {
+      setStatus(error.message);
+    }
+  });
+
+  document.getElementById("clearBackgroundBtn")?.addEventListener("click", async () => {
+    const spectrum = getSelectedSpectrum();
+    if (!spectrum) return;
+    clearBackgroundCorrection(spectrum);
+    state.ui.backgroundSelection.enabled = false;
+    state.ui.backgroundSelection.startX = null;
+    state.ui.backgroundSelection.currentX = null;
+    renderAll();
+    await renderPlot();
+    setStatus("バックグラウンド補正を解除しました。");
+  });
+
 
   document.getElementById("cosmicRayModeInput")?.addEventListener("change", (event) => {
     state.ui.cosmicRayRemoval.enabled = event.target.checked;
