@@ -30,7 +30,7 @@ export const state = {
       manualYRange: null,
       lockXRange: false,
       lockYRange: false,
-      snapXRange: true,
+      snapXRange: false,
     },
     cosmicRayRemoval: {
       enabled: false,

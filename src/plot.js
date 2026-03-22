@@ -167,6 +167,17 @@ function niceStep(rawStep, roundResult = true) {
   return niceFraction * (10 ** exponent);
 }
 
+function buildAxisWithExactRange(range, { targetTicks = 6 } = {}) {
+  const normalized = normalizeRange(range);
+  if (!normalized) return null;
+
+  const [min, max] = normalized;
+  const span = max - min;
+  const step = niceStep(span / Math.max(targetTicks - 1, 1));
+
+  return { range: [min, max], tick0: min, dtick: step };
+}
+
 function buildNiceAxis(range, { targetTicks = 6, paddingRatio = 0 } = {}) {
   const normalized = normalizeRange(range);
   if (!normalized) return null;
@@ -258,7 +269,9 @@ function resolveViewport(traces) {
 
   const shouldSnapX = viewport.lockXRange ? false : viewport.snapXRange !== false;
   const xAxis = requestedXRange
-    ? buildNiceAxis(requestedXRange, { targetTicks: 7, paddingRatio: shouldSnapX ? 0.04 : 0 })
+    ? (shouldSnapX
+      ? buildNiceAxis(requestedXRange, { targetTicks: 7, paddingRatio: 0.04 })
+      : buildAxisWithExactRange(requestedXRange, { targetTicks: 7 }))
     : (dataXRange ? buildNiceAxis(dataXRange, { targetTicks: 7, paddingRatio: 0.02 }) : null);
 
   const displayXRange = normalizeRange(xAxis?.range ?? requestedXRange ?? dataXRange);
@@ -529,7 +542,7 @@ export async function renderPlot() {
     },
     xaxis: createAxisConfig(state.ui.xLabel, colors, xTypography, xTypography.titleStandoff),
     yaxis: createAxisConfig(state.ui.yLabel, colors, yTypography, yTypography.titleStandoff),
-    dragmode: "pan",
+    dragmode: "zoom",
     showlegend: true,
     legend: {
       orientation: "v",
@@ -553,6 +566,8 @@ export async function renderPlot() {
 
   applyAxisLayout(layout.xaxis, resolvedViewport.xAxis);
   applyAxisLayout(layout.yaxis, resolvedViewport.yAxis);
+  layout.xaxis.fixedrange = false;
+  layout.yaxis.fixedrange = true;
 
   const config = {
     responsive: true,
