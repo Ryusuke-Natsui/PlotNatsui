@@ -108,7 +108,56 @@ export function exportProject() {
   return JSON.stringify(state, null, 2);
 }
 
+function sanitizeRange(range) {
+  if (!Array.isArray(range) || range.length !== 2) return null;
+  const start = Number(range[0]);
+  const end = Number(range[1]);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start === end) return null;
+  return start < end ? [start, end] : [end, start];
+}
+
+function sanitizeUiState(ui = {}, previousUi = state.ui) {
+  const importedViewport = ui.plotViewport ?? {};
+  const importedCosmicRayRemoval = ui.cosmicRayRemoval ?? {};
+
+  return {
+    ...previousUi,
+    ...ui,
+    xLabelPreset: ui.xLabelPreset ?? previousUi.xLabelPreset,
+    yLabelPreset: ui.yLabelPreset ?? previousUi.yLabelPreset,
+    plotViewport: {
+      ...previousUi.plotViewport,
+      ...importedViewport,
+      selectedXRange: sanitizeRange(importedViewport.selectedXRange),
+      manualXRange: sanitizeRange(importedViewport.manualXRange),
+      manualYRange: sanitizeRange(importedViewport.manualYRange),
+      lockXRange: Boolean(importedViewport.lockXRange),
+      lockYRange: Boolean(importedViewport.lockYRange),
+      snapXRange: importedViewport.snapXRange !== false,
+    },
+    cosmicRayRemoval: {
+      ...previousUi.cosmicRayRemoval,
+      ...importedCosmicRayRemoval,
+      enabled: Boolean(importedCosmicRayRemoval.enabled),
+      halfWidth: Number.isFinite(Number(importedCosmicRayRemoval.halfWidth))
+        ? Math.max(0, Math.floor(Number(importedCosmicRayRemoval.halfWidth)))
+        : previousUi.cosmicRayRemoval.halfWidth,
+    },
+    backgroundSelection: {
+      ...previousUi.backgroundSelection,
+      enabled: false,
+      mode: 'include',
+      startX: null,
+      currentX: null,
+    },
+  };
+}
+
 export function importProject(project) {
+  if (!project || typeof project !== "object") {
+    throw new Error("プロジェクト JSON の形式が不正です。");
+  }
+
   state.spectra = (project.spectra ?? []).map((spectrum) => normalizeSpectrumState({
     visible: true,
     color: "",
@@ -120,23 +169,8 @@ export function importProject(project) {
     measurementTimeSeconds: null,
     ...spectrum,
   }));
-  state.selectedSpectrumId = project.selectedSpectrumId ?? state.spectra[0]?.id ?? null;
-  state.ui = {
-    ...state.ui,
-    ...(project.ui ?? {}),
-    xLabelPreset: project.ui?.xLabelPreset ?? state.ui.xLabelPreset,
-    yLabelPreset: project.ui?.yLabelPreset ?? state.ui.yLabelPreset,
-    plotViewport: {
-      ...state.ui.plotViewport,
-      ...(project.ui?.plotViewport ?? {}),
-    },
-    cosmicRayRemoval: {
-      ...state.ui.cosmicRayRemoval,
-      ...(project.ui?.cosmicRayRemoval ?? {}),
-    },
-    backgroundSelection: {
-      ...state.ui.backgroundSelection,
-      ...(project.ui?.backgroundSelection ?? {}),
-    },
-  };
+  state.selectedSpectrumId = state.spectra.some((spectrum) => spectrum.id === project.selectedSpectrumId)
+    ? project.selectedSpectrumId
+    : state.spectra[0]?.id ?? null;
+  state.ui = sanitizeUiState(project.ui, state.ui);
 }

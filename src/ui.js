@@ -560,29 +560,48 @@ export function renderAll() {
 
 async function handleSpectrumFiles(fileList) {
   const files = [...fileList];
+  let loadedCount = 0;
+  const errors = [];
+
   for (const file of files) {
     try {
       const spectrum = await parseSpectrumFile(file);
       addSpectrum(spectrum);
+      loadedCount += 1;
     } catch (error) {
-      setStatus(error.message);
+      errors.push(error instanceof Error ? error.message : String(error));
     }
   }
 
   syncAutoYLabel();
   renderAll();
   await renderPlot();
-  setStatus(`${files.length} file(s) loaded.`);
+
+  if (!loadedCount && errors.length) {
+    setStatus(`読み込みに失敗しました: ${errors[0]}`);
+    return;
+  }
+
+  if (errors.length) {
+    setStatus(`${loadedCount}/${files.length} file(s) loaded. 失敗: ${errors[0]}`);
+    return;
+  }
+
+  setStatus(`${loadedCount} file(s) loaded.`);
 }
 
 async function handleProjectFile(file) {
-  const text = await file.text();
-  const project = JSON.parse(text);
-  importProject(project);
-  closePeakMenu();
-  renderAll();
-  await renderPlot();
-  setStatus("プロジェクトを読み込みました。");
+  try {
+    const text = await file.text();
+    const project = JSON.parse(text);
+    importProject(project);
+    closePeakMenu();
+    renderAll();
+    await renderPlot();
+    setStatus("プロジェクトを読み込みました。");
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "プロジェクトの読み込みに失敗しました。");
+  }
 }
 
 function bindFileDropTarget(dropzone, fileInput, onDropFiles) {
