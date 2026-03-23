@@ -3,11 +3,26 @@ function normalizeSpectrumState(spectrum) {
     ...spectrum,
     xProcessed: Array.isArray(spectrum.xProcessed) ? spectrum.xProcessed : [...(spectrum.xRaw ?? [])],
     yProcessed: Array.isArray(spectrum.yProcessed) ? spectrum.yProcessed : [...(spectrum.yRaw ?? [])],
+    normalization: spectrum.normalization && typeof spectrum.normalization === 'object'
+      ? {
+        type: spectrum.normalization.type ?? null,
+        peakIndex: Number.isInteger(spectrum.normalization.peakIndex) ? spectrum.normalization.peakIndex : null,
+        scale: Number.isFinite(Number(spectrum.normalization.scale)) ? Number(spectrum.normalization.scale) : null,
+      }
+      : null,
     detectedPeaks: Array.isArray(spectrum.detectedPeaks) ? spectrum.detectedPeaks : [],
     selectedRemovalPointIndex: Number.isInteger(spectrum.selectedRemovalPointIndex)
       ? spectrum.selectedRemovalPointIndex
       : null,
-    cosmicRayHistory: Array.isArray(spectrum.cosmicRayHistory) ? spectrum.cosmicRayHistory : [],
+    cosmicRayHistory: Array.isArray(spectrum.cosmicRayHistory)
+      ? spectrum.cosmicRayHistory.map((entry) => ({
+        start: Number.isInteger(entry?.start) ? entry.start : null,
+        end: Number.isInteger(entry?.end) ? entry.end : null,
+        selectedRemovalPointIndex: Number.isInteger(entry?.selectedRemovalPointIndex)
+          ? entry.selectedRemovalPointIndex
+          : null,
+      })).filter((entry) => Number.isInteger(entry.start) && Number.isInteger(entry.end))
+      : [],
     backgroundCorrection: {
       mode: spectrum.backgroundCorrection?.mode ?? 'none',
       constant: {

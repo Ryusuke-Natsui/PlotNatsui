@@ -76,6 +76,72 @@ function ensureBackgroundCorrectionState(spectrum) {
   return background;
 }
 
+function ensureNormalizationState(spectrum) {
+  if (!spectrum.normalization || typeof spectrum.normalization !== 'object') {
+    spectrum.normalization = null;
+    return null;
+  }
+
+  const peakIndex = Number(spectrum.normalization.peakIndex);
+  const scale = Number(spectrum.normalization.scale);
+  if (spectrum.normalization.type !== 'peak-height' || !Number.isInteger(peakIndex) || !Number.isFinite(scale) || scale === 0) {
+    spectrum.normalization = null;
+    return null;
+  }
+
+  spectrum.normalization = {
+    type: 'peak-height',
+    peakIndex,
+    scale,
+  };
+  return spectrum.normalization;
+}
+
+function ensureCosmicRayHistoryState(spectrum) {
+  const history = Array.isArray(spectrum.cosmicRayHistory) ? spectrum.cosmicRayHistory : [];
+  spectrum.cosmicRayHistory = history
+    .map((entry) => {
+      const start = Number(entry?.start);
+      const end = Number(entry?.end);
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start) return null;
+      return {
+        start,
+        end,
+        selectedRemovalPointIndex: Number.isInteger(entry?.selectedRemovalPointIndex) ? entry.selectedRemovalPointIndex : null,
+      };
+    })
+    .filter(Boolean);
+  return spectrum.cosmicRayHistory;
+}
+
+function applyCosmicRayRemovalOperations(values, operations) {
+  const next = cloneArray(values);
+  operations.forEach(({ start, end }) => {
+    if (!next.length) return;
+    const clampedStart = Math.max(0, Math.min(start, next.length - 1));
+    const clampedEnd = Math.max(clampedStart, Math.min(end, next.length - 1));
+    const leftIndex = clampedStart - 1;
+    const rightIndex = clampedEnd + 1;
+
+    if (leftIndex >= 0 && rightIndex < next.length) {
+      const leftValue = next[leftIndex];
+      const rightValue = next[rightIndex];
+      const span = rightIndex - leftIndex;
+      for (let index = clampedStart; index <= clampedEnd; index += 1) {
+        const ratio = (index - leftIndex) / span;
+        next[index] = leftValue + ((rightValue - leftValue) * ratio);
+      }
+      return;
+    }
+
+    const fillValue = leftIndex >= 0 ? next[leftIndex] : next[rightIndex];
+    for (let index = clampedStart; index <= clampedEnd; index += 1) {
+      next[index] = fillValue;
+    }
+  });
+  return next;
+}
+
 function getIndicesInRange(xValues, range) {
   const normalized = normalizeRange(range);
   if (!normalized) return [];
@@ -125,16 +191,22 @@ function fitLinearBackground(xValues, yValues, fitRanges) {
 export function ensureSpectrumProcessingState(spectrum) {
   if (!spectrum) return;
   ensureBackgroundCorrectionState(spectrum);
+  ensureNormalizationState(spectrum);
+  ensureCosmicRayHistoryState(spectrum);
   if (!Array.isArray(spectrum.xProcessed)) spectrum.xProcessed = cloneArray(spectrum.xRaw);
   if (!Array.isArray(spectrum.yProcessed)) spectrum.yProcessed = cloneArray(spectrum.yRaw);
   if (!Array.isArray(spectrum.detectedPeaks)) spectrum.detectedPeaks = [];
+  if (!Number.isInteger(spectrum.selectedRemovalPointIndex)) spectrum.selectedRemovalPointIndex = null;
 }
 
-function applyBackgroundCorrection(spectrum) {
-  const background = ensureBackgroundCorrectionState(spectrum);
+function recomputeProcessedSpectrum(spectrum, options = {}) {
+  ensureSpectrumProcessingState(spectrum);
+  const { preserveSelectedRemovalPoint = false } = options;
+  const background = spectrum.backgroundCorrection;
+  const normalization = spectrum.normalization;
   const x = cloneArray(spectrum.xRaw);
   const yRaw = cloneArray(spectrum.yRaw);
-  const yNext = cloneArray(yRaw);
+  let yNext = cloneArray(yRaw);
 
   if (background.mode === 'constant') {
     const range = normalizeRange(background.constant.range);
@@ -157,14 +229,27 @@ function applyBackgroundCorrection(spectrum) {
       background.linear.coefficients = null;
     }
   } else {
-    background.linear.coefficients = background.linear.coefficients ?? null;
+    background.linear.coefficients = null;
   }
+
+  if (normalization?.type === 'peak-height') {
+    const scale = Number(normalization.scale);
+    if (!Number.isFinite(scale) || scale === 0) {
+      throw new Error('選択したピーク強度で正規化できません。');
+    }
+    yNext = yNext.map((value) => value / scale);
+  }
+
+  yNext = applyCosmicRayRemovalOperations(yNext, spectrum.cosmicRayHistory);
 
   spectrum.xProcessed = x;
   spectrum.yProcessed = yNext;
   spectrum.detectedPeaks = [];
-  spectrum.selectedRemovalPointIndex = null;
-  spectrum.cosmicRayHistory = [];
+  if (!preserveSelectedRemovalPoint) {
+    spectrum.selectedRemovalPointIndex = null;
+  } else if (!Number.isInteger(spectrum.selectedRemovalPointIndex) || spectrum.selectedRemovalPointIndex < 0 || spectrum.selectedRemovalPointIndex >= yNext.length) {
+    spectrum.selectedRemovalPointIndex = null;
+  }
 }
 
 function ensureCleanupState(spectrum) {
@@ -195,25 +280,23 @@ export function setConstantBackground(spectrum, range, value) {
   const numericValue = Number(value);
   if (!normalizedRange) throw new Error('定数バックグラウンドを適用する範囲を指定してください。');
   if (!Number.isFinite(numericValue)) throw new Error('差し引く定数は数値で入力してください。');
-  spectrum.normalization = null;
   spectrum.backgroundCorrection.mode = 'constant';
   spectrum.backgroundCorrection.constant = { range: normalizedRange, value: numericValue };
   spectrum.backgroundCorrection.linear = { ...spectrum.backgroundCorrection.linear, coefficients: null };
-  applyBackgroundCorrection(spectrum);
+  recomputeProcessedSpectrum(spectrum);
 }
 
 export function configureLinearBackground(spectrum, targetRange) {
   ensureSpectrumProcessingState(spectrum);
   const normalizedTarget = normalizeRange(targetRange);
   if (!normalizedTarget) throw new Error('線形バックグラウンドの対象範囲を指定してください。');
-  spectrum.normalization = null;
   spectrum.backgroundCorrection.mode = 'linear';
   spectrum.backgroundCorrection.linear = {
     targetRange: normalizedTarget,
     fitRanges: [],
     coefficients: null,
   };
-  applyBackgroundCorrection(spectrum);
+  recomputeProcessedSpectrum(spectrum);
 }
 
 export function updateLinearBackgroundSelection(spectrum, range, selectionMode = 'include') {
@@ -227,7 +310,7 @@ export function updateLinearBackgroundSelection(spectrum, range, selectionMode =
   background.linear.fitRanges = selectionMode === 'exclude'
     ? subtractRanges(current, clamped)
     : mergeRanges([...current, clamped]);
-  applyBackgroundCorrection(spectrum);
+  recomputeProcessedSpectrum(spectrum);
 }
 
 export function clearLinearBackgroundSelection(spectrum) {
@@ -235,7 +318,7 @@ export function clearLinearBackgroundSelection(spectrum) {
   spectrum.backgroundCorrection.mode = 'linear';
   spectrum.backgroundCorrection.linear.fitRanges = [];
   spectrum.backgroundCorrection.linear.coefficients = null;
-  applyBackgroundCorrection(spectrum);
+  recomputeProcessedSpectrum(spectrum);
 }
 
 export function clearBackgroundCorrection(spectrum) {
@@ -243,12 +326,7 @@ export function clearBackgroundCorrection(spectrum) {
   spectrum.backgroundCorrection.mode = 'none';
   spectrum.backgroundCorrection.constant = { range: null, value: 0 };
   spectrum.backgroundCorrection.linear = { targetRange: null, fitRanges: [], coefficients: null };
-  spectrum.normalization = null;
-  spectrum.xProcessed = cloneArray(spectrum.xRaw);
-  spectrum.yProcessed = cloneArray(spectrum.yRaw);
-  spectrum.detectedPeaks = [];
-  spectrum.selectedRemovalPointIndex = null;
-  spectrum.cosmicRayHistory = [];
+  recomputeProcessedSpectrum(spectrum);
 }
 
 export function normalizeByPeakIndex(spectrum, peakIndex) {
@@ -259,12 +337,12 @@ export function normalizeByPeakIndex(spectrum, peakIndex) {
     throw new Error('選択したピーク強度で正規化できません。');
   }
 
-  spectrum.yProcessed = y.map((v) => v / scale);
   spectrum.normalization = {
     type: 'peak-height',
     peakIndex,
     scale,
   };
+  recomputeProcessedSpectrum(spectrum);
 }
 
 export function selectRemovalPoint(spectrum, pointIndex) {
@@ -291,35 +369,13 @@ export function removeSelectedSpike(spectrum, halfWidth = 1) {
   const width = Math.max(0, Math.floor(Number(halfWidth) || 0));
   const start = Math.max(0, centerIndex - width);
   const end = Math.min(y.length - 1, centerIndex + width);
-  const leftIndex = start - 1;
-  const rightIndex = end + 1;
-  const next = [...y];
-  const originalSegment = y.slice(start, end + 1);
-
-  if (leftIndex >= 0 && rightIndex < y.length) {
-    const leftValue = y[leftIndex];
-    const rightValue = y[rightIndex];
-    const span = rightIndex - leftIndex;
-    for (let index = start; index <= end; index += 1) {
-      const ratio = (index - leftIndex) / span;
-      next[index] = leftValue + ((rightValue - leftValue) * ratio);
-    }
-  } else {
-    const fillValue = leftIndex >= 0 ? y[leftIndex] : y[rightIndex];
-    for (let index = start; index <= end; index += 1) {
-      next[index] = fillValue;
-    }
-  }
 
   spectrum.cosmicRayHistory.push({
     start,
     end,
-    values: originalSegment,
     selectedRemovalPointIndex: centerIndex,
   });
-  spectrum.yProcessed = next;
-  spectrum.detectedPeaks = [];
-  spectrum.selectedRemovalPointIndex = null;
+  recomputeProcessedSpectrum(spectrum);
 
   return { start, end };
 }
@@ -331,10 +387,7 @@ export function undoLastSpikeRemoval(spectrum) {
     throw new Error('元に戻せる宇宙線除去はありません。');
   }
 
-  lastEdit.values.forEach((value, offset) => {
-    spectrum.yProcessed[lastEdit.start + offset] = value;
-  });
-  spectrum.detectedPeaks = [];
+  recomputeProcessedSpectrum(spectrum, { preserveSelectedRemovalPoint: true });
   spectrum.selectedRemovalPointIndex = lastEdit.selectedRemovalPointIndex;
 
   return { start: lastEdit.start, end: lastEdit.end };
