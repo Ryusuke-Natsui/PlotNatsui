@@ -340,6 +340,46 @@ function getRangeFromInputs(minId, maxId) {
   return min < max ? [min, max] : [max, min];
 }
 
+
+function renderWorkspaceSummary() {
+  const summary = document.getElementById("workspaceSummary");
+  const traceSummary = document.getElementById("traceListSummary");
+  const peakSummary = document.getElementById("peakListSummary");
+  const selected = getSelectedSpectrum();
+  const selectedRange = state.ui.plotViewport.selectedXRange;
+
+  if (traceSummary) {
+    traceSummary.textContent = state.spectra.length
+      ? `${state.spectra.length} loaded / ${state.spectra.filter((spectrum) => spectrum.visible).length} visible`
+      : '0 loaded';
+  }
+
+  if (peakSummary) {
+    peakSummary.textContent = selected
+      ? `${selected.detectedPeaks?.length ?? 0} peaks in ${selected.name}`
+      : '選択スペクトルなし';
+  }
+
+  if (!summary) return;
+  if (!state.spectra.length) {
+    summary.textContent = 'スペクトルを読み込むと、ここに現在の作業状況が表示されます。';
+    return;
+  }
+
+  const parts = [
+    `読込: ${state.spectra.length} 本`,
+    `表示: ${state.spectra.filter((spectrum) => spectrum.visible).length} 本`,
+    selected ? `選択中: ${selected.name}` : '選択中: なし',
+    `x 範囲: ${formatRange(selectedRange)}`,
+  ];
+
+  if (selected?.detectedPeaks?.length) {
+    parts.push(`検出ピーク: ${selected.detectedPeaks.length}`);
+  }
+
+  summary.textContent = parts.join(' / ');
+}
+
 function renderTraceList() {
   const container = document.getElementById("traceList");
   if (!container) return;
@@ -510,6 +550,7 @@ export function renderAll() {
   if (axisTickFontSizeInput) axisTickFontSizeInput.value = String(state.ui.axisTickFontSize);
 
   renderLabelControls();
+  renderWorkspaceSummary();
   renderTraceList();
   renderPeakMenu();
   renderPeakList();
