@@ -30,28 +30,41 @@
       </div>
     </header>
 
-    <main class="layout">
-      <aside class="panel left-panel">
-        <section class="card">
-          <h2>Files</h2>
-          <label id="fileDropzone" class="file-drop">
-            <span class="file-drop-title">Select spectra</span>
-            <span class="file-drop-subtitle">ここへ入力ファイルをドラッグ＆ドロップ</span>
-            <input id="fileInput" type="file" multiple accept=".txt,.csv,.tsv,.dat,text/plain,text/csv" />
-          </label>
-          <p class="hint">複数ファイルを同時に読み込めます。</p>
+    <main class="layout app-shell">
+      <aside class="panel left-panel panel-column">
+        <section class="card accordion-card compact-card" data-accordion default-open>
+          <button class="accordion-toggle" type="button" aria-expanded="true">
+            <span class="accordion-title"><span class="accordion-caret" aria-hidden="true"></span><span>Files</span></span>
+            <span class="accordion-summary">ドラッグ&ドロップ対応</span>
+          </button>
+          <div class="accordion-content">
+            <label id="fileDropzone" class="file-drop">
+              <span class="file-drop-title">Select spectra</span>
+              <span class="file-drop-subtitle">ここへ入力ファイルをドラッグ＆ドロップ</span>
+              <input id="fileInput" type="file" multiple accept=".txt,.csv,.tsv,.dat,text/plain,text/csv" />
+            </label>
+            <p class="hint">複数ファイルを同時に読み込めます。</p>
+          </div>
         </section>
 
-        <section class="card">
-          <h2>Loaded spectra</h2>
-          <div id="traceList" class="trace-list"></div>
+        <section class="card accordion-card compact-card" data-accordion default-open>
+          <button class="accordion-toggle" type="button" aria-expanded="true">
+            <span class="accordion-title"><span class="accordion-caret" aria-hidden="true"></span><span>Loaded spectra</span></span>
+            <span id="traceListSummary" class="accordion-summary">0 loaded</span>
+          </button>
+          <div class="accordion-content">
+            <div id="traceList" class="trace-list"></div>
+          </div>
         </section>
       </aside>
 
-      <section class="center-panel">
-        <section class="card plot-card">
-          <div class="plot-toolbar">
-            <p class="hint plot-hint">マウスホイールで拡大縮小、ドラッグで表示範囲を移動できます。</p>
+      <section class="center-panel workspace-panel">
+        <section class="card plot-card sticky-plot-card">
+          <div class="plot-toolbar plot-toolbar-top">
+            <div>
+              <p class="hint plot-hint">マウスホイールで拡大縮小、ドラッグで表示範囲を移動できます。</p>
+              <div id="workspaceSummary" class="workspace-summary">スペクトルを読み込むと、ここに現在の作業状況が表示されます。</div>
+            </div>
             <div class="plot-toolbar-actions">
               <button id="snapXAxisBtn" type="button">Snap X axis</button>
               <button id="fixScaleBtn" type="button">Fix current scale</button>
@@ -75,18 +88,24 @@
           </div>
         </section>
 
-        <section class="card">
-          <h2>Detected peaks</h2>
-          <div id="peakList" class="peak-list empty">ピークはまだ検出されていません。</div>
+        <section class="card accordion-card compact-card" data-accordion default-open>
+          <button class="accordion-toggle" type="button" aria-expanded="true">
+            <span class="accordion-title"><span class="accordion-caret" aria-hidden="true"></span><span>Detected peaks</span></span>
+            <span id="peakListSummary" class="accordion-summary">選択スペクトルなし</span>
+          </button>
+          <div class="accordion-content">
+            <div id="peakList" class="peak-list empty">ピークはまだ検出されていません。</div>
+          </div>
         </section>
       </section>
 
-      <aside class="panel right-panel">
-        <section class="card accordion-card" data-accordion default-open>
+      <aside class="panel right-panel panel-column">
+        <section class="card accordion-card compact-card" data-accordion default-open>
           <button class="accordion-toggle" type="button" aria-expanded="true">
             <span class="accordion-title"><span class="accordion-caret" aria-hidden="true"></span><span>View</span></span>
+            <span class="accordion-summary">表示と軸</span>
           </button>
-          <div class="accordion-content">
+          <div class="accordion-content form-grid form-grid-2col">
             <label>
               X label preset
               <select id="xLabelPresetInput">
@@ -136,7 +155,7 @@
               Tick label size
               <input id="axisTickFontSizeInput" type="number" min="8" max="48" step="1" value="18" />
             </label>
-            <div class="axis-range-grid">
+            <div class="axis-range-grid form-grid-span-2">
               <label>
                 X min
                 <input id="xRangeMinInput" type="number" step="any" placeholder="auto" />
@@ -154,31 +173,34 @@
                 <input id="yRangeMaxInput" type="number" step="any" placeholder="auto" />
               </label>
             </div>
-            <label class="checkbox-row">
-              <input id="snapXRangeInput" type="checkbox" checked />
-              <span>x 軸を近くの切りのいい範囲に広げる</span>
-            </label>
-            <label class="checkbox-row">
-              <input id="lockXRangeInput" type="checkbox" />
-              <span>x 軸スケールを固定する</span>
-            </label>
-            <label class="checkbox-row">
-              <input id="lockYRangeInput" type="checkbox" />
-              <span>y 軸スケールを固定する</span>
-            </label>
-            <div class="button-row">
+            <div class="compact-toggle-list form-grid-span-2">
+              <label class="checkbox-row">
+                <input id="snapXRangeInput" type="checkbox" checked />
+                <span>x 軸を近くの切りのいい範囲に広げる</span>
+              </label>
+              <label class="checkbox-row">
+                <input id="lockXRangeInput" type="checkbox" />
+                <span>x 軸スケールを固定する</span>
+              </label>
+              <label class="checkbox-row">
+                <input id="lockYRangeInput" type="checkbox" />
+                <span>y 軸スケールを固定する</span>
+              </label>
+            </div>
+            <div class="button-row form-grid-span-2">
               <button id="applyAxisRangeBtn" type="button">Apply ranges</button>
               <button id="applyViewBtn">Apply View</button>
             </div>
-            <p class="hint">ラベルの定番候補を選べます。各スペクトルに測定時間を入れると、その系列は cps 換算され、y 軸ラベルも自動で Intensity (cps) になります。</p>
+            <p class="hint form-grid-span-2">ラベルの定番候補を選べます。各スペクトルに測定時間を入れると、その系列は cps 換算され、y 軸ラベルも自動で Intensity (cps) になります。</p>
           </div>
         </section>
 
-        <section class="card accordion-card" data-accordion default-open>
+        <section class="card accordion-card compact-card" data-accordion default-open>
           <button class="accordion-toggle" type="button" aria-expanded="true">
             <span class="accordion-title"><span class="accordion-caret" aria-hidden="true"></span><span>Peak detection</span></span>
+            <span class="accordion-summary">選択中 1 本に適用</span>
           </button>
-          <div class="accordion-content">
+          <div class="accordion-content form-grid form-grid-2col">
             <label>
               Min prominence
               <input id="prominenceInput" type="number" min="0" step="0.001" value="10" />
@@ -187,52 +209,61 @@
               Min distance (points)
               <input id="distanceInput" type="number" min="1" step="1" value="5" />
             </label>
-            <button id="detectPeaksBtn">Detect peaks of selected spectrum</button>
-            <p class="hint">左のスペクトル一覧で選択中の 1 本を対象に検出します。</p>
+            <div class="button-row form-grid-span-2">
+              <button id="detectPeaksBtn">Detect peaks of selected spectrum</button>
+            </div>
+            <p class="hint form-grid-span-2">左のスペクトル一覧で選択中の 1 本を対象に検出します。</p>
           </div>
         </section>
 
-        <section class="card accordion-card" data-accordion default-open>
-          <button class="accordion-toggle" type="button" aria-expanded="true">
+        <section class="card accordion-card compact-card" data-accordion>
+          <button class="accordion-toggle" type="button" aria-expanded="false">
             <span class="accordion-title"><span class="accordion-caret" aria-hidden="true"></span><span>Normalization</span></span>
+            <span class="accordion-summary">ピークから正規化</span>
           </button>
-          <div class="accordion-content">
+          <div class="accordion-content" hidden>
             <p class="hint">ピーク検出後はグラフ上にマーカーが出ます。マーカーをクリックするとメニューが開き、そのピーク強度が 1 になるよう正規化できます。</p>
             <button id="resetNormalizationBtn">Reset selected spectrum</button>
           </div>
         </section>
 
-        <section class="card accordion-card" data-accordion default-open>
-          <button class="accordion-toggle" type="button" aria-expanded="true">
+        <section class="card accordion-card compact-card" data-accordion>
+          <button class="accordion-toggle" type="button" aria-expanded="false">
             <span class="accordion-title"><span class="accordion-caret" aria-hidden="true"></span><span>Background subtraction</span></span>
+            <span class="accordion-summary">表示範囲から補正</span>
           </button>
           <div class="accordion-content">
             <p class="hint">まずグラフをズームして対象の x 範囲を決めてください。定数補正はその表示範囲へ指定値を引き、線形補正は同じ表示範囲を対象にして、グラフ上のドラッグで近似に使う区間を追加/除外できます。</p>
-            <div id="constantRangeText" class="hint">現在の x 範囲: 未設定</div>
-            <label>
-              差し引く定数
-              <input id="constantBackgroundValueInput" type="number" step="any" value="0" />
-            </label>
-            <div class="button-row">
-              <button id="applyConstantBackgroundBtn" type="button">Apply constant background</button>
-              <button id="clearBackgroundBtn" type="button">Clear background</button>
+            <div class="info-stack">
+              <div id="constantRangeText" class="hint">現在の x 範囲: 未設定</div>
+              <label>
+                差し引く定数
+                <input id="constantBackgroundValueInput" type="number" step="any" value="0" />
+              </label>
+              <div class="button-row">
+                <button id="applyConstantBackgroundBtn" type="button">Apply constant background</button>
+                <button id="clearBackgroundBtn" type="button">Clear background</button>
+              </div>
             </div>
             <hr class="section-divider" />
-            <div id="linearTargetRangeText" class="hint">線形補正対象: 未設定</div>
-            <div id="linearFitRangesText" class="hint">近似に使う区間: まだ選択されていません</div>
-            <div id="linearSelectionModeText" class="hint">開始後にグラフ上でドラッグして近似区間を編集</div>
-            <div class="button-row">
-              <button id="startLinearBackgroundBtn" type="button">Start linear background</button>
-              <button id="stopLinearBackgroundBtn" type="button">Stop selection</button>
-              <button id="clearLinearSelectionBtn" type="button">Clear fit ranges</button>
+            <div class="info-stack">
+              <div id="linearTargetRangeText" class="hint">線形補正対象: 未設定</div>
+              <div id="linearFitRangesText" class="hint">近似に使う区間: まだ選択されていません</div>
+              <div id="linearSelectionModeText" class="hint">開始後にグラフ上でドラッグして近似区間を編集</div>
+              <div class="button-row">
+                <button id="startLinearBackgroundBtn" type="button">Start linear background</button>
+                <button id="stopLinearBackgroundBtn" type="button">Stop selection</button>
+                <button id="clearLinearSelectionBtn" type="button">Clear fit ranges</button>
+              </div>
             </div>
             <p class="hint">左から右へドラッグすると近似に使う領域を追加し、右から左へドラッグすると既存の近似領域から除外します。</p>
           </div>
         </section>
 
-        <section class="card accordion-card" data-accordion default-open>
-          <button class="accordion-toggle" type="button" aria-expanded="true">
+        <section class="card accordion-card compact-card" data-accordion>
+          <button class="accordion-toggle" type="button" aria-expanded="false">
             <span class="accordion-title"><span class="accordion-caret" aria-hidden="true"></span><span>Cosmic ray cleanup</span></span>
+            <span class="accordion-summary">点選択で補間除去</span>
           </button>
           <div class="accordion-content">
             <p class="hint">選択中スペクトルに対して点選択モードを有効にし、グラフ上で宇宙線由来の鋭い線をクリックして補間除去します。</p>
@@ -253,9 +284,10 @@
           </div>
         </section>
 
-        <section class="card accordion-card" data-accordion>
+        <section class="card accordion-card compact-card" data-accordion>
           <button class="accordion-toggle" type="button" aria-expanded="false">
             <span class="accordion-title"><span class="accordion-caret" aria-hidden="true"></span><span>Next extensions</span></span>
+            <span class="accordion-summary">今後の候補</span>
           </button>
           <div class="accordion-content" hidden>
             <ul class="checklist">

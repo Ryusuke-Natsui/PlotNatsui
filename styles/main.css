@@ -593,3 +593,177 @@ button:disabled {
   pointer-events: auto;
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 3%, transparent), color-mix(in srgb, var(--accent) 1%, transparent));
 }
+
+
+.app-shell {
+  min-height: calc(100vh - 132px);
+  align-items: start;
+}
+
+.panel-column,
+.workspace-panel {
+  min-height: 0;
+}
+
+.left-panel,
+.right-panel,
+.workspace-panel {
+  max-height: calc(100vh - 132px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.compact-card {
+  padding-top: 12px;
+}
+
+.accordion-summary {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-align: right;
+}
+
+.sticky-plot-card {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.plot-toolbar-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.workspace-summary {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.form-grid-2col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-grid-span-2 {
+  grid-column: 1 / -1;
+}
+
+.compact-toggle-list {
+  display: grid;
+  gap: 8px;
+}
+
+.info-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.trace-list,
+.peak-list {
+  max-height: min(44vh, 560px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.peak-list.empty {
+  max-height: none;
+}
+
+.trace-controls-extended {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.trace-field-wide {
+  grid-column: 1 / -1;
+}
+
+.trace-item {
+  padding: 12px;
+}
+
+.trace-head {
+  margin-bottom: 8px;
+}
+
+.plot-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.button-row > * {
+  flex: 1 1 160px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+@media (max-width: 1400px) {
+  .layout {
+    grid-template-columns: 280px minmax(0, 1fr) 300px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .left-panel,
+  .right-panel,
+  .workspace-panel {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .sticky-plot-card {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .topbar,
+  .footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .plot-toolbar-top,
+  .form-grid-2col,
+  .trace-controls-extended {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .plot-toolbar-top {
+    display: grid;
+  }
+
+  .plot-toolbar-actions {
+    justify-content: flex-start;
+  }
+}
